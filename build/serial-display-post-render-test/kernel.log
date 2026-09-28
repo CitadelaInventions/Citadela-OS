@@ -1,0 +1,116 @@
+Stored Wallpapers: 3
+File explorer tree cache is current. Reusing SPIFFS cache.
+Stored Root Filenames: 11
+Looking for appIcons
+App File Count: 12
+Wallpaper in SPIFFS is up-to-date. Skipping copy.
+SPIFFS icon up-to-date, skipping copy: ?8??
+Icon in SPIFFS: /icons/Utilities.bmp (20x20 bpp=24 offset=54)
+SPIFFS icon up-to-date, skipping copy: ?8??
+Icon in SPIFFS: /icons/Files.bmp (20x20 bpp=24 offset=54)
+SPIFFS icon up-to-date, skipping copy: ?8??
+Icon in SPIFFS: /icons/Restart.bmp (20x20 bpp=24 offset=54)
+SPIFFS icon up-to-date, skipping copy: ?8??
+Icon in SPIFFS: /icons/Configure.bmp (20x20 bpp=24 offset=54)
+SPIFFS icon up-to-date, skipping copy: ?8??
+Icon in SPIFFS: /icons/Programmer.bmp (20x20 bpp=24 offset=54)
+SPIFFS icon up-to-date, skipping copy: ?8??
+Icon in SPIFFS: /icons/Terminal.bmp (20x20 bpp=24 offset=54)
+SD dismounted before video init.
+DMA heap before video init: free=232228 largest=110580
+I2S TX
+DMA heap after video init: free=3964 largest=692
+Loaded cached filename index: apps=12 files=11
+Rendering wallpaper from SPIFFS...
+FreeHeap before open: 63240
+Wallpaper BMP: 400x225 (topDown=0), offset=54, bpp=24
+Using static wallpaper rowBuf: 1200 bytes
+FreeHeap after rowBuf alloc: 62796
+Wallpaper rendered (hybrid fast) in 639 ms. FreeHeap after: 63240
+Wallpaper raw cache write skipped; calibrated BMP renderer remains active.
+Reading DiskBarn, seeking SDF
+62193139712
+Stage 2 Log: DEF Drivers init
+Wallpaper region 20x20 @ 15,18 rendered in 75 ms (19 rows).
+Wallpaper region 20x20 @ 15,48 rendered in 64 ms (20 rows).
+Wallpaper region 20x20 @ 15,78 rendered in 64 ms (20 rows).
+Wallpaper region 20x20 @ 15,138 rendered in 90 ms (20 rows).
+Wallpaper region 20x20 @ 15,168 rendered in 86 ms (20 rows).
+UI Loaded properly
+Wallpaper region 376x285 @ 0,0 rendered in 624 ms (225 rows).
+[SC] home
+Rendering wallpaper from SPIFFS...
+FreeHeap before open: 63292
+Wallpaper BMP cached: 400x225 (topDown=0), offset=54
+Using static wallpaper rowBuf: 1200 bytes
+FreeHeap after rowBuf alloc: 62848
+Wallpaper rendered (hybrid fast) in 640 ms. FreeHeap after: 63292
+Wallpaper raw cache write skipped; calibrated BMP renderer remains active.
+Reading DiskBarn, seeking SDF
+62193139712
+Stage 2 Log: DEF Drivers init
+Wallpaper region 20x20 @ 15,18 rendered in 74 ms (19 rows).
+Wallpaper region 20x20 @ 15,48 rendered in 64 ms (20 rows).
+Wallpaper region 20x20 @ 15,78 rendered in 64 ms (20 rows).
+Wallpaper region 20x20 @ 15,138 rendered in 89 ms (20 rows).
+Wallpaper region 20x20 @ 15,168 rendered in 87 ms (20 rows).
+UI Loaded properly
+[SC] commands: apps, files, utilities, config, terminal, wallpaper, home, path <dir>, find <text>, type <text>, mouse <x> <y> <buttons>, up/down/left/right/enter/esc/backspace/pageup/pagedown
+[SC] home
+Rendering wallpaper from SPIFFS...
+FreeHeap before open: 63292
+Wallpaper BMP cached: 400x225 (topDown=0), offset=54
+Using static wallpaper rowBuf: 1200 bytes
+FreeHeap after rowBuf alloc: 62848
+Wallpaper rendered (hybrid fast) in 641 ms. FreeHeap after: 63292
+Wallpaper raw cache write skipped; calibrated BMP renderer remains active.
+Reading DiskBarn, seeking SDF
+62193139712
+Stage 2 Log: DEF Drivers init
+Wallpaper region 20x20 @ 15,18 rendered in 75 ms (19 rows).
+Wallpaper region 20x20 @ 15,48 rendered in 64 ms (20 rows).
+Wallpaper region 20x20 @ 15,78 rendered in 64 ms (20 rows).
+Wallpaper region 20x20 @ 15,138 rendered in 90 ms (20 rows).
+Wallpaper region 20x20 @ 15,168 rendered in 86 ms (20 rows).
+UI Loaded properly
+[SC] commands: apps, files, utilities, config, terminal, wallpaper, home, path <dir>, find <text>, type <text>, mouse <x> <y> <buttons>, up/down/left/right/enter/esc/backspace/pageup/pagedown
+[SC] home
+Rendering wallpaper from SPIFFS...
+FreeHeap before open: 63292
+Wallpaper BMP cached: 400x225 (topDown=0), offset=54
+Using static wallpaper rowBuf: 1200 bytes
+FreeHeap after rowBuf alloc: 62848
+Wallpaper rendered (hybrid fast) in 640 ms. FreeHeap after: 63292
+Wallpaper raw cache write skipped; calibrated BMP renderer remains active.
+Reading DiskBarn, seeking SDF
+62193139712
+Stage 2 Log: DEF Drivers init
+Wallpaper region 20x20 @ 15,18 rendered in 74 ms (19 rows).
+Wallpaper region 20x20 @ 15,48 rendered in 64 ms (20 rows).
+Wallpaper region 20x20 @ 15,78 rendered in 63 ms (20 rows).
+Wallpaper region 20x20 @ 15,138 rendered in 90 ms (20 rows).
+Wallpaper region 20x20 @ 15,168 rendered in 88 ms (20 rows).
+UI Loaded properly
+[SC] commands: apps, files, utilities, config, terminal, wallpaper, home, path <dir>, find <text>, type <text>, mouse <x> <y> <buttons>, up/down/left/right/enter/esc/backspace/pageup/pagedown
+CBTIME 2000-01-01 00:00:00
+Wallpaper region 376x285 @ 0,0 rendered in 624 ms (225 rows).
+CBTIME 2000-01-01 00:00:00
+[SC] home
+Rendering wallpaper from SPIFFS...
+FreeHeap before open: 42372
+Wallpaper BMP cached: 400x225 (topDown=0), offset=54
+Using static wallpaper rowBuf: 1200 bytes
+FreeHeap after rowBuf alloc: 41928
+Wallpaper rendered (hybrid fast) in 640 ms. FreeHeap after: 42372
+Wallpaper raw cache write skipped; calibrated BMP renderer remains active.
+Reading DiskBarn, seeking SDF
+62193139712
+Stage 2 Log: DEF Drivers init
+Wallpaper region 20x20 @ 15,18 rendered in 75 ms (19 rows).
+Wallpaper region 20x20 @ 15,48 rendered in 64 ms (20 rows).
+Wallpaper region 20x20 @ 15,78 rendered in 63 ms (20 rows).
+Wallpaper region 20x20 @ 15,138 rendered in 90 ms (20 rows).
+Wallpaper region 20x20 @ 15,168 rendered in 87 ms (20 rows).
+UI Loaded properly
+[SC] commands: apps, files, utilities, config, terminal, wallpaper, home, path <dir>, find <text>, type <text>, mouse <x> <y> <buttons>, up/down/left/right/enter/esc/backspace/pageup/pagedown
+CBTIME 2000-01-01 00:00:00

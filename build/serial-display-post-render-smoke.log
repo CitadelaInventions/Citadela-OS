@@ -1,0 +1,324 @@
+status COM4: identifying SerialController...
+status Receiving initial screen...
+status Using cached BMP asset 841FC541 (270,054 bytes)
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+status Using cached BMP asset 66E24A7E (1,254 bytes)
+log BMP asset ADC001A6 at (15, 18), size 20 x 20
+status Using cached BMP asset C3B22125 (1,254 bytes)
+log BMP asset 25601C4D at (15, 48), size 20 x 20
+status Using cached BMP asset BDB6F0B3 (1,254 bytes)
+log BMP asset 5B52A409 at (15, 78), size 20 x 20
+status Using cached BMP asset AC91A138 (1,254 bytes)
+log BMP asset 398888BA at (15, 108), size 20 x 20
+status Using cached BMP asset A43C4F92 (1,254 bytes)
+log BMP asset DC2A4BA4 at (15, 138), size 20 x 20
+status Using cached BMP asset A8144283 (1,254 bytes)
+log BMP asset 2F235A10 at (15, 168), size 20 x 20
+log Filled rectangle at (11, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (37, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (0, 270), size 376 x 15, colour FFB6D5
+status Live
+Initial scene: 3.71 seconds; 45 packets; 13734 bytes
+log Filled rectangle at (32, 32), size 312 x 220, colour 000000
+log Filled rectangle at (33, 33), size 310 x 18, colour 552400
+log Filled rectangle at (33, 50), size 310 x 1, colour AAB600
+log Rectangle at (32, 32), size 312 x 220, colour FFB6AA
+log Filled rectangle at (37, 36), size 11 x 11, colour 0024AA
+log Rectangle at (37, 36), size 11 x 11, colour FFDBFF
+log Filled rectangle at (33, 51), size 310 x 200, colour 080808
+log Filled rectangle at (43, 58), size 141 x 19, colour 554900
+log Rectangle at (43, 58), size 141 x 19, colour AAB62B
+log Filled rectangle at (161, 61), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 80), size 141 x 19, colour 002400
+log Rectangle at (43, 80), size 141 x 19, colour 55492B
+log Auto-reconnect failed
+log Hard-resetting BLE client: auto reconnect failed
+log Next reconnect attempt in 2079 ms
+log CBTIME 2000-01-01 00:00:00
+log Filled rectangle at (161, 83), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 102), size 141 x 19, colour 002400
+log Rectangle at (43, 102), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 105), size 26 x 13, colour 552455
+log Filled rectangle at (43, 124), size 141 x 19, colour 002400
+log Rectangle at (43, 124), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 127), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 146), size 141 x 19, colour 002400
+log Rectangle at (43, 146), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 149), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 168), size 141 x 19, colour 002400
+log Rectangle at (43, 168), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 171), size 26 x 13, colour 552455
+log Filled rectangle at (43, 190), size 141 x 19, colour 002400
+log Rectangle at (43, 190), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 193), size 26 x 13, colour 552455
+log Filled rectangle at (43, 212), size 141 x 19, colour 002400
+log Rectangle at (43, 212), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 215), size 26 x 13, colour 552455
+log Filled rectangle at (192, 58), size 141 x 19, colour 002400
+log Rectangle at (192, 58), size 141 x 19, colour 55492B
+log Filled rectangle at (304, 61), size 26 x 13, colour 552455
+log Filled rectangle at (192, 80), size 141 x 19, colour 002400
+log Rectangle at (192, 80), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 102), size 141 x 19, colour 002400
+log Rectangle at (192, 102), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 124), size 141 x 19, colour 002400
+log Rectangle at (192, 124), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 146), size 141 x 19, colour 002400
+log Rectangle at (192, 146), size 141 x 19, colour 55492B
+log Filled rectangle at (310, 149), size 20 x 13, colour 556D00
+log Filled rectangle at (192, 168), size 141 x 19, colour 002400
+log Rectangle at (192, 168), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 190), size 141 x 19, colour 002400
+log Rectangle at (192, 190), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 212), size 141 x 19, colour 002400
+log Rectangle at (192, 212), size 141 x 19, colour 55492B
+log Filled rectangle at (310, 215), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 58), size 141 x 19, colour 554900
+log Rectangle at (43, 58), size 141 x 19, colour AAB62B
+log Filled rectangle at (161, 61), size 20 x 13, colour 556D00
+log attemptReconnectIfNeeded: reinitializing BLE client before reconnect
+Config glyphs: HeapRAM53.11KBTotal SD28.96GBFree SD28.09GBHeapROM4.00MBRAMUSAGECORE:LAMBDA00:00:002000-01-01ConfigurationWallpaper TogONTooltips TogONVerbose UARTOFFDisplay ColourONWiFi Core TogONTelemetry DataOFFFastBootOFFAudio DriverOFFInvert ColoursOFFSet Time/Date>Black Alpha>White Alpha>Mouse OutlineONWallpaper Menu>UART Upload>Serial DisplayONSystem preferencesWallpaper TogON
+Configuration command rendering matches the actual framebuffer.
+status Enable Serial Display in kernel Configuration
+log Auto-reconnect failed
+log Hard-resetting BLE client: auto reconnect failed
+log Next reconnect attempt in 2049 ms
+Configuration toggle OFF stops drawing packets.
+log attemptReconnectIfNeeded: reinitializing BLE client before reconnect
+status Using cached BMP asset 841FC541 (270,054 bytes)
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+status Using cached BMP asset 66E24A7E (1,254 bytes)
+log BMP asset ADC001A6 at (15, 18), size 20 x 20
+status Using cached BMP asset C3B22125 (1,254 bytes)
+log BMP asset 25601C4D at (15, 48), size 20 x 20
+status Using cached BMP asset BDB6F0B3 (1,254 bytes)
+log BMP asset 5B52A409 at (15, 78), size 20 x 20
+status Using cached BMP asset AC91A138 (1,254 bytes)
+log BMP asset 398888BA at (15, 108), size 20 x 20
+status Using cached BMP asset A43C4F92 (1,254 bytes)
+log BMP asset DC2A4BA4 at (15, 138), size 20 x 20
+status Using cached BMP asset A8144283 (1,254 bytes)
+log BMP asset 2F235A10 at (15, 168), size 20 x 20
+log Filled rectangle at (11, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (37, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (0, 270), size 376 x 15, colour FFB6D5
+log Filled rectangle at (32, 32), size 312 x 220, colour 000000
+log Filled rectangle at (33, 33), size 310 x 18, colour 552400
+log Filled rectangle at (33, 50), size 310 x 1, colour AAB600
+log Rectangle at (32, 32), size 312 x 220, colour FFB6AA
+log Filled rectangle at (37, 36), size 11 x 11, colour 0024AA
+log Rectangle at (37, 36), size 11 x 11, colour FFDBFF
+log Filled rectangle at (33, 51), size 310 x 200, colour 080808
+log Filled rectangle at (43, 58), size 141 x 19, colour 002400
+log Rectangle at (43, 58), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 61), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 80), size 141 x 19, colour 002400
+log Rectangle at (43, 80), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 83), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 102), size 141 x 19, colour 002400
+log Rectangle at (43, 102), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 105), size 26 x 13, colour 552455
+log Filled rectangle at (43, 124), size 141 x 19, colour 002400
+log Rectangle at (43, 124), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 127), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 146), size 141 x 19, colour 002400
+log Rectangle at (43, 146), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 149), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 168), size 141 x 19, colour 002400
+log Rectangle at (43, 168), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 171), size 26 x 13, colour 552455
+log Filled rectangle at (43, 190), size 141 x 19, colour 002400
+log Rectangle at (43, 190), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 193), size 26 x 13, colour 552455
+log Filled rectangle at (43, 212), size 141 x 19, colour 002400
+log Rectangle at (43, 212), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 215), size 26 x 13, colour 552455
+log Filled rectangle at (192, 58), size 141 x 19, colour 002400
+log Rectangle at (192, 58), size 141 x 19, colour 55492B
+log Filled rectangle at (304, 61), size 26 x 13, colour 552455
+log Filled rectangle at (192, 80), size 141 x 19, colour 002400
+log Rectangle at (192, 80), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 102), size 141 x 19, colour 002400
+log Rectangle at (192, 102), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 124), size 141 x 19, colour 002400
+log Rectangle at (192, 124), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 146), size 141 x 19, colour 002400
+log Rectangle at (192, 146), size 141 x 19, colour 55492B
+log Filled rectangle at (310, 149), size 20 x 13, colour 556D00
+log Filled rectangle at (192, 168), size 141 x 19, colour 002400
+log Rectangle at (192, 168), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 190), size 141 x 19, colour 002400
+log Rectangle at (192, 190), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 212), size 141 x 19, colour 554900
+log Rectangle at (192, 212), size 141 x 19, colour AAB62B
+log Filled rectangle at (310, 215), size 20 x 13, colour 556D00
+status Live
+Configuration toggle ON reconstructs the current scene.
+log Auto-reconnect failed
+log Hard-resetting BLE client: auto reconnect failed
+log Next reconnect attempt in 2050 ms
+log attemptReconnectIfNeeded: reinitializing BLE client before reconnect
+status Using cached BMP asset 841FC541 (270,054 bytes)
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+status Using cached BMP asset 66E24A7E (1,254 bytes)
+log BMP asset ADC001A6 at (15, 18), size 20 x 20
+status Using cached BMP asset C3B22125 (1,254 bytes)
+log BMP asset 25601C4D at (15, 48), size 20 x 20
+status Using cached BMP asset BDB6F0B3 (1,254 bytes)
+log BMP asset 5B52A409 at (15, 78), size 20 x 20
+status Using cached BMP asset AC91A138 (1,254 bytes)
+log BMP asset 398888BA at (15, 108), size 20 x 20
+status Using cached BMP asset A43C4F92 (1,254 bytes)
+log BMP asset DC2A4BA4 at (15, 138), size 20 x 20
+status Using cached BMP asset A8144283 (1,254 bytes)
+log BMP asset 2F235A10 at (15, 168), size 20 x 20
+log Filled rectangle at (11, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (37, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (0, 270), size 376 x 15, colour FFB6D5
+log Filled rectangle at (32, 32), size 312 x 220, colour 000000
+log Filled rectangle at (33, 33), size 310 x 18, colour 552400
+log Filled rectangle at (33, 50), size 310 x 1, colour AAB600
+log Rectangle at (32, 32), size 312 x 220, colour FFB6AA
+log Filled rectangle at (37, 36), size 11 x 11, colour 0024AA
+log Rectangle at (37, 36), size 11 x 11, colour FFDBFF
+log Filled rectangle at (33, 51), size 310 x 200, colour 080808
+log Filled rectangle at (43, 58), size 141 x 19, colour 002400
+log Rectangle at (43, 58), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 61), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 80), size 141 x 19, colour 002400
+log Rectangle at (43, 80), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 83), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 102), size 141 x 19, colour 002400
+log Rectangle at (43, 102), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 105), size 26 x 13, colour 552455
+log Filled rectangle at (43, 124), size 141 x 19, colour 002400
+log Rectangle at (43, 124), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 127), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 146), size 141 x 19, colour 002400
+log Rectangle at (43, 146), size 141 x 19, colour 55492B
+log Filled rectangle at (161, 149), size 20 x 13, colour 556D00
+log Filled rectangle at (43, 168), size 141 x 19, colour 002400
+log Rectangle at (43, 168), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 171), size 26 x 13, colour 552455
+log Filled rectangle at (43, 190), size 141 x 19, colour 002400
+log Rectangle at (43, 190), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 193), size 26 x 13, colour 552455
+log Filled rectangle at (43, 212), size 141 x 19, colour 002400
+log Rectangle at (43, 212), size 141 x 19, colour 55492B
+log Filled rectangle at (155, 215), size 26 x 13, colour 552455
+log Filled rectangle at (192, 58), size 141 x 19, colour 002400
+log Rectangle at (192, 58), size 141 x 19, colour 55492B
+log Filled rectangle at (304, 61), size 26 x 13, colour 552455
+log Filled rectangle at (192, 80), size 141 x 19, colour 002400
+log Rectangle at (192, 80), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 102), size 141 x 19, colour 002400
+log Rectangle at (192, 102), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 124), size 141 x 19, colour 002400
+log Rectangle at (192, 124), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 146), size 141 x 19, colour 002400
+log Rectangle at (192, 146), size 141 x 19, colour 55492B
+log Filled rectangle at (310, 149), size 20 x 13, colour 556D00
+log Filled rectangle at (192, 168), size 141 x 19, colour 002400
+log Rectangle at (192, 168), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 190), size 141 x 19, colour 002400
+log Rectangle at (192, 190), size 141 x 19, colour 55492B
+log Filled rectangle at (192, 212), size 141 x 19, colour 554900
+log Rectangle at (192, 212), size 141 x 19, colour AAB62B
+log Filled rectangle at (310, 215), size 20 x 13, colour 556D00
+status Live
+Cached scene reconstruction: 5.9 seconds
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+log BMP asset ADC001A6 at (15, 18), size 20 x 20
+log BMP asset 25601C4D at (15, 48), size 20 x 20
+log BMP asset 5B52A409 at (15, 78), size 20 x 20
+log BMP asset 398888BA at (15, 108), size 20 x 20
+log BMP asset DC2A4BA4 at (15, 138), size 20 x 20
+log Auto-reconnect failed
+log Hard-resetting BLE client: auto reconnect failed
+log Next reconnect attempt in 2085 ms
+log BMP asset 2F235A10 at (15, 168), size 20 x 20
+log Filled rectangle at (11, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (37, 18), size 2 x 20, colour FFDBFF
+log attemptReconnectIfNeeded: reinitializing BLE client before reconnect
+log Filled rectangle at (52, 42), size 312 x 220, colour 000000
+log Filled rectangle at (53, 43), size 310 x 18, colour 552400
+log Filled rectangle at (53, 60), size 310 x 1, colour AAB600
+log Rectangle at (52, 42), size 312 x 220, colour FFB6AA
+log Filled rectangle at (57, 46), size 11 x 11, colour 0024AA
+log Rectangle at (57, 46), size 11 x 11, colour FFDBFF
+log Filled rectangle at (53, 61), size 310 x 200, colour 080808
+log Filled rectangle at (63, 68), size 141 x 19, colour 002400
+log Rectangle at (63, 68), size 141 x 19, colour 55492B
+log Filled rectangle at (181, 71), size 20 x 13, colour 556D00
+log Filled rectangle at (63, 90), size 141 x 19, colour 002400
+log Rectangle at (63, 90), size 141 x 19, colour 55492B
+log Filled rectangle at (181, 93), size 20 x 13, colour 556D00
+log Filled rectangle at (63, 112), size 141 x 19, colour 002400
+log Rectangle at (63, 112), size 141 x 19, colour 55492B
+log Filled rectangle at (175, 115), size 26 x 13, colour 552455
+log Filled rectangle at (63, 134), size 141 x 19, colour 002400
+log Rectangle at (63, 134), size 141 x 19, colour 55492B
+log Filled rectangle at (181, 137), size 20 x 13, colour 556D00
+log Filled rectangle at (63, 156), size 141 x 19, colour 002400
+log Rectangle at (63, 156), size 141 x 19, colour 55492B
+log Filled rectangle at (181, 159), size 20 x 13, colour 556D00
+log Filled rectangle at (63, 178), size 141 x 19, colour 002400
+log Rectangle at (63, 178), size 141 x 19, colour 55492B
+log Filled rectangle at (175, 181), size 26 x 13, colour 552455
+log Filled rectangle at (63, 200), size 141 x 19, colour 002400
+log Rectangle at (63, 200), size 141 x 19, colour 55492B
+log Filled rectangle at (175, 203), size 26 x 13, colour 552455
+log Filled rectangle at (63, 222), size 141 x 19, colour 002400
+log Rectangle at (63, 222), size 141 x 19, colour 55492B
+log Filled rectangle at (175, 225), size 26 x 13, colour 552455
+log Filled rectangle at (212, 68), size 141 x 19, colour 002400
+log Rectangle at (212, 68), size 141 x 19, colour 55492B
+log Filled rectangle at (324, 71), size 26 x 13, colour 552455
+log Filled rectangle at (212, 90), size 141 x 19, colour 002400
+log Rectangle at (212, 90), size 141 x 19, colour 55492B
+log Filled rectangle at (212, 112), size 141 x 19, colour 002400
+log Rectangle at (212, 112), size 141 x 19, colour 55492B
+log Filled rectangle at (212, 134), size 141 x 19, colour 002400
+log Rectangle at (212, 134), size 141 x 19, colour 55492B
+log Filled rectangle at (212, 156), size 141 x 19, colour 002400
+log Rectangle at (212, 156), size 141 x 19, colour 55492B
+log Filled rectangle at (330, 159), size 20 x 13, colour 556D00
+log Filled rectangle at (212, 178), size 141 x 19, colour 002400
+log Rectangle at (212, 178), size 141 x 19, colour 55492B
+log Filled rectangle at (212, 200), size 141 x 19, colour 002400
+log Rectangle at (212, 200), size 141 x 19, colour 55492B
+log Filled rectangle at (212, 222), size 141 x 19, colour 554900
+log Rectangle at (212, 222), size 141 x 19, colour AAB62B
+log Filled rectangle at (330, 225), size 20 x 13, colour 556D00
+log Auto-reconnect failed
+log Hard-resetting BLE client: auto reconnect failed
+log Next reconnect attempt in 2055 ms
+Window dragging uses a calibrated outline and redraws on drop.
+log attemptReconnectIfNeeded: reinitializing BLE client before reconnect
+log BMP asset 1116AD8D at (0, 0), size 376 x 285
+log Filled rectangle at (0, 270), size 376 x 15, colour FFB6D5
+log Filled rectangle at (11, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (37, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (11, 18), size 2 x 20, colour FFDBFF
+log Filled rectangle at (37, 18), size 2 x 20, colour FFDBFF
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+log BMP asset ADC001A6 at (15, 18), size 20 x 20
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+log BMP asset 25601C4D at (15, 48), size 20 x 20
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+log BMP asset 5B52A409 at (15, 78), size 20 x 20
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+log BMP asset 398888BA at (15, 108), size 20 x 20
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+log BMP asset DC2A4BA4 at (15, 138), size 20 x 20
+log BMP asset 1116AD8D at (0, 0), size 400 x 285
+log BMP asset 2F235A10 at (15, 168), size 20 x 20
+log Auto-reconnect failed
+log Hard-resetting BLE client: auto reconnect failed
+log Next reconnect attempt in 2099 ms
+log CBTIME 2000-01-01 00:00:00
+log Filled rectangle at (41, 18), size 64 x 20, colour FFDBFF
+log Rectangle at (41, 18), size 64 x 20, colour AA6D55
+log CBTIME 2000-01-01 00:00:00
+log attemptReconnectIfNeeded: reinitializing BLE client before reconnect
+Final: 2546 commands; 0 protocol errors

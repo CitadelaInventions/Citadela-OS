@@ -1,0 +1,561 @@
+[
+  {
+    "added_include_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32"
+  },
+  {
+    "added_include_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32"
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": "SD.h"
+  },
+  {
+    "added_include_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src"
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": "FS.h"
+  },
+  {
+    "added_include_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src"
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": "SPI.h"
+  },
+  {
+    "added_include_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src"
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\sketch\\SdAppDeployer.ino.cpp",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src\\SD.cpp",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\SD\\SD.cpp.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\SD\\SD.cpp.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src\\SD.cpp",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src\\sd_diskio.cpp",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\SD\\sd_diskio.cpp.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\SD\\sd_diskio.cpp.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src\\sd_diskio.cpp",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src\\sd_diskio_crc.c",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\SD\\sd_diskio_crc.c.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\SD\\sd_diskio_crc.c.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src\\sd_diskio_crc.c",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src\\FS.cpp",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\FS\\FS.cpp.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\FS\\FS.cpp.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src\\FS.cpp",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src\\vfs_api.cpp",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\FS\\vfs_api.cpp.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\FS\\vfs_api.cpp.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src\\vfs_api.cpp",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src\\SPI.cpp",
+      "object_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\SPI\\SPI.cpp.o",
+      "depfile_path": "C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer\\libraries\\SPI\\SPI.cpp.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2511/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32:UploadSpeed=921600,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/defines",
+        "-IC:\\Users\\ADMIN CONF\\Documents\\CitContents\\Tools\\SdAppDeployer",
+        "-iprefix",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/include/",
+        "@C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/flags/includes",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.7/qio_qspi/include",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SD\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\FS\\src",
+        "-IC:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/build_opt.h",
+        "@C:\\Users\\ADMIN CONF\\Documents\\CitContents\\build\\sd-app-deployer/file_opts",
+        "C:\\Users\\ADMIN CONF\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src\\SPI.cpp",
+        "-o",
+        "nul"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  }
+]

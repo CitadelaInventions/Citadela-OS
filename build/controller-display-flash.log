@@ -1,0 +1,59 @@
+esptool v5.1.0
+Serial port COM4:
+Connecting.....
+Connected to ESP32 on COM4:
+Chip type:          ESP32-D0WD-V3 (revision v3.1)
+Features:           Wi-Fi, BT, Dual Core + LP Core, 240MHz, Vref calibration in eFuse, Coding Scheme None
+Crystal frequency:  40MHz
+MAC:                88:13:bf:24:fa:c0
+
+Uploading stub flasher...
+Running stub flasher...
+Stub flasher running.
+
+Configuring flash size...
+Flash will be erased from 0x00010000 to 0x00135fff...
+Compressed 1204048 bytes to 757657...
+
+Writing at 0x00010000 [                              ]   0.0% 0/757657 bytes... 
+
+Writing at 0x0001c843 [                              ]   2.2% 16384/757657 bytes... 
+
+Writing at 0x0002752f [>                             ]   4.3% 32768/757657 bytes... 
+
+Writing at 0x00031120 [>                             ]   6.5% 49152/757657 bytes... 
+
+Writing at 0x00041b99 [=>                            ]   8.6% 65536/757657 bytes... 
+
+Writing at 0x00047aac [==>                           ]  10.8% 81920/757657 bytes... 
+
+Writing at 0x0004d7c6 [==>                           ]  13.0% 98304/757657 bytes... 
+
+Writing at 0x00053ca1 [===>                          ]  15.1% 114688/757657 bytes... 
+
+Writing at 0x00059765 [====>                         ]  17.3% 131072/757657 bytes... 
+
+Writing at 0x0005ea32 [====>                         ]  19.5% 147456/757657 bytes... 
+Traceback (most recent call last):
+  File "esptool\__init__.py", line 1173, in _main
+  File "esptool\__init__.py", line 1032, in main
+  File "esptool\cli_util.py", line 229, in __call__
+  File "rich_click\rich_command.py", line 404, in __call__
+  File "click\core.py", line 1442, in __call__
+  File "rich_click\rich_command.py", line 187, in main
+  File "click\core.py", line 1830, in invoke
+  File "click\core.py", line 1226, in invoke
+  File "click\core.py", line 794, in invoke
+  File "click\decorators.py", line 34, in new_func
+  File "esptool\__init__.py", line 689, in write_flash_cli
+  File "esptool\cmds.py", line 864, in write_flash
+  File "esptool\loader.py", line 138, in inner
+  File "esptool\loader.py", line 1391, in flash_defl_block
+  File "esptool\loader.py", line 565, in check_command
+  File "esptool\loader.py", line 495, in command
+  File "esptool\loader.py", line 431, in read
+StopIteration
+
+A fatal error occurred: The chip stopped responding.
+
+Hard resetting via RTS pin...

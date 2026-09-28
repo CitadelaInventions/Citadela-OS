@@ -1,0 +1,2755 @@
+#include "SPIFFS.h"
+#include "FS.h"
+#include <Update.h>
+#include <ESP32Video.h>
+#include <Ressources/Font8x8.h>
+#include <Ressources/Font6x8.h>
+#include <esp_ota_ops.h>
+#include "esp_partition.h"
+#include "SD.h"
+#include "SPI.h"
+#include "Arduino.h"
+#include "driver/ledc.h"
+ 
+#define CONSOLE_LINES 64
+#define CONSOLE_VISIBLE_LINES 10
+#define comPin 23
+#define MAX_FILES 100
+#define MAX_NAME_LENGTH 64
+#define TIMEOUT 1000
+#define SPEAKER_PIN 12
+#define SCREEN_WIDTH  380
+#define SCREEN_HEIGHT 285
+#define CLOCK_POS_X 255 + 55
+#define CLOCK_POS_Y 272
+ 
+uint64_t cardSize = 0;
+uint64_t usedBytes = 0;
+uint64_t freeBytes = 0;
+uint64_t freeSketch = 0;
+ 
+uint8_t gammaLUT[256];
+ 
+String boolRes = "";
+String appName = "";
+String appString = "";
+String warningMessage = "";
+String SDpinStats = "";
+String executable = "";
+String WALLPAPER_SD_PATH = "/UserData/Wallpapers/Default.bmp";
+String consoleBuf[CONSOLE_LINES];
+ 
+static int previousDragValve = -1;
+static int dragvalve = 1;
+ 
+const unsigned long TIME_INTERVAL_MS = 1000;
+ 
+unsigned long lastTimeClockMs = 0;
+unsigned long hoverStartMillis = 0;
+ 
+bool tooltipShown = false;
+int tooltipIndex = -1;
+int tooltipX = 0;
+int tooltipY = 0;
+int tooltipW = 0;
+int tooltipH = 0;
+int FileCount = 0;
+int heap = 0;
+int logLine = 1;
+int bmpBrightnessPercent = 100;
+int skipLuminanceThreshold = 250;
+int wallpaperWhiteAlphaThreshold = 255;
+int yieldEveryNRows = 128;
+int emBreakAction = 0;
+int wallpaperBlackAlphaThreshold = 160;
+int blackThreshold = 85;
+int whiteThreshold = 255;
+int consoleHead = 0;
+int consoleCount = 0; 
+int consoleScroll = 0;
+int fileCount = 0;
+int appFileCount = 0;
+ 
+const int consoleX = 16;
+const int consoleY = 162;
+const int consoleW = 255+97;
+const int consoleH = 100;
+const int consoleLineHeight = 8;
+const int ICON_WHITE_ALPHA_THRESHOLD = 100;
+const int HOVER_DELAY_MS = 1500;
+const int outputPinAudio = 26;
+const int speakerPin = 33;
+const int WALLPAPER_W = 400;
+const int WALLPAPER_H = 285;
+const int APP_ICON_MAX_SIZE = 32;
+ 
+char tooltipText[64] = {0};
+char FNB[MAX_FILES][MAX_NAME_LENGTH];
+char APP_FNB[MAX_FILES][MAX_NAME_LENGTH];
+const char* WALLPAPER_SPIFFS_PATH = "/wallpaper.bmp";
+ 
+bool fE = false;
+bool SDInUse = false;
+bool warning = false;
+bool initVd = false;
+bool util = false;
+bool selection = false;
+bool startup = true;
+bool shouldFlash = false;
+bool applaunched = false;
+bool shell = false;
+bool emBreak = false;
+bool bmpMonochrome = false;
+bool configurationPending = false;
+bool skipWallpaperBrightPixels = false;
+bool skipBrightPixels = false;
+bool invertColors = false;
+bool showLoggerOnScreen = true;
+bool WallpaperToggle = true;
+bool TooltipsToggle = true;
+bool VerboseUART = false;
+bool DisplayColour = true;
+bool WifiCoreToggle = true;
+bool TelemetryData = false;
+bool FastBoot = false;
+bool AudioDriver = true;
+bool skipWallpaperDarkPixels = false;
+bool gammaLUT_built = false;
+ 
+const bool redAvailable = true;
+ 
+float whiteBlend = 1.0f;
+float blackBlend = 1.0f;
+float bmpGamma = 2.4f;
+ 
+CompositeColorDAC videodisplay;
+ 
+void buildGammaLUT() {
+    float brightnessMul = ((float)bmpBrightnessPercent+10) / 100.0f;
+    if (brightnessMul < 0.0f) brightnessMul = 0.0f;
+    if (brightnessMul > 4.0f) brightnessMul = 4.0f;
+    for (int i = 0; i < 256; ++i) {
+        float v = (float)i / 255.0f;
+        v *= brightnessMul;
+        if (v > 1.0f) v = 1.0f;
+        float gval = powf(v, bmpGamma);
+        int out = (int)(gval * 255.0f + 0.5f);
+        if (out < 0) out = 0;
+        if (out > 255) out = 255;
+        gammaLUT[i] = (uint8_t)out;
+    }
+    gammaLUT_built = true;
+}
+void readSystemConfigFromSPIFFS() {
+    if (!SPIFFS.exists("/systemConfiguration.conf")) {
+        Serial.println("No systemConfiguration.conf in SPIFFS, using defaults.");
+        return;
+    }
+ 
+    File f = SPIFFS.open("/systemConfiguration.conf", FILE_READ);
+    if (!f) {
+        Serial.println("Failed to open /systemConfiguration.conf for read");
+        return;
+    }
+ 
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+        int eq = line.indexOf('=');
+        if (eq == -1) continue;
+        String key = line.substring(0, eq);
+        String val = line.substring(eq + 1);
+        key.trim();
+        val.trim();
+        val.toLowerCase();
+ 
+        bool v = (val == "1" || val == "true" || val == "on");
+ 
+        if (key == "WallpaperToggle") WallpaperToggle = v;
+        else if (key == "TooltipsToggle") TooltipsToggle = v;
+        else if (key == "VerboseUART") VerboseUART = v;
+        else if (key == "DisplayColour") DisplayColour = v;
+        else if (key == "WifiCoreToggle") WifiCoreToggle = v;
+        else if (key == "TelemetryData") TelemetryData = v;
+        else if (key == "FastBoot") FastBoot = v;
+        else if (key == "AudioDriver") AudioDriver = v;
+    }
+ 
+    f.close();
+    Serial.println("Loaded systemConfiguration.conf from SPIFFS");
+}
+ 
+bool configEnabled(int id) {
+    switch (id) {
+        case 0: return WallpaperToggle;
+        case 1: return TooltipsToggle;
+        case 2: return VerboseUART;
+        case 3: return DisplayColour;
+        case 4: return WifiCoreToggle;
+        case 5: return TelemetryData;
+        case 6: return FastBoot;
+        case 7: return AudioDriver;
+        default: return false;
+    }
+}
+ 
+void setConfigByIndex(int id, bool val) {
+    switch (id) {
+        case 0: WallpaperToggle = val; break;
+        case 1: TooltipsToggle = val; break;
+        case 2: VerboseUART = val; break;
+        case 3: DisplayColour = val; break;
+        case 4: WifiCoreToggle = val; break;
+        case 5: TelemetryData = val; break;
+        case 6: FastBoot = val; break;
+        case 7: AudioDriver = val; break;
+    }
+    writeSystemConfigToSPIFFS();
+}
+void toggleConfigByIndex(int id) {
+    bool cur = configEnabled(id);
+    setConfigByIndex(id, !cur);
+}
+ 
+void writeSystemConfigToSPIFFS() {
+    File f = SPIFFS.open("/systemConfiguration.conf", FILE_WRITE);
+    if (!f) {
+        Serial.println("Failed to open /systemConfiguration.conf for write");
+        return;
+    }
+ 
+    f.printf("WallpaperToggle=%d\n", WallpaperToggle ? 1 : 0);
+    f.printf("TooltipsToggle=%d\n", TooltipsToggle ? 1 : 0);
+    f.printf("VerboseUART=%d\n", VerboseUART ? 1 : 0);
+    f.printf("DisplayColour=%d\n", DisplayColour ? 1 : 0);
+    f.printf("WifiCoreToggle=%d\n", WifiCoreToggle ? 1 : 0);
+    f.printf("TelemetryData=%d\n", TelemetryData ? 1 : 0);
+    f.printf("FastBoot=%d\n", FastBoot ? 1 : 0);
+    f.printf("AudioDriver=%d\n", AudioDriver ? 1 : 0);
+    f.close();
+ 
+    Serial.println("Wrote /systemConfiguration.conf to SPIFFS");
+}
+bool copyFileSPIFFSToSD(const char* spPath, const char* sdPath) {
+    if (!SPIFFS.exists(spPath)) {
+        Serial.printf("SPIFFS file not found: %s\n", spPath);
+        return false;
+    }
+    File spf = SPIFFS.open(spPath, FILE_READ);
+    if (!spf) {
+        Serial.printf("Failed to open SPIFFS file: %s\n", spPath);
+        return false;
+    }
+ 
+    String sdp = String(sdPath);
+    int pos = sdp.lastIndexOf('/');
+    if (pos > 0) {
+        String parent = sdp.substring(0, pos);
+        if (!SD.exists(parent.c_str())) {
+            SD.mkdir(parent.c_str());
+            Serial.printf("Created SD dir: %s\n", parent.c_str());
+        }
+    }
+ 
+    File sdf = SD.open(sdPath, FILE_WRITE);
+    if (!sdf) {
+        Serial.printf("Failed to open SD target: %s\n", sdPath);
+        spf.close();
+        return false;
+    }
+ 
+    const size_t bufSize = 4096;
+    uint8_t buf[bufSize];
+    while (spf.available()) {
+        size_t r = spf.read(buf, bufSize);
+        if (r == 0) break;
+        sdf.write(buf, r);
+    }
+ 
+    sdf.close();
+    spf.close();
+    Serial.printf("Copied SPIFFS:%s -> SD:%s\n", spPath, sdPath);
+    return true;
+}
+ 
+void setBMPBrightness(int percent) {
+    bmpBrightnessPercent = constrain(percent, 0, 200);
+    Serial.printf("BMP brightness set to %d%%\n", bmpBrightnessPercent);
+}
+void setBMPMonochrome(bool mono) {
+    bmpMonochrome = mono;
+    Serial.printf("BMP monochrome: %s\n", mono ? "ON" : "OFF");
+}
+void setWhiteThreshold(int t) {
+    whiteThreshold = constrain(t, 0, 255);
+    Serial.printf("White threshold set to %d\n", whiteThreshold);
+}
+void setWhiteBlend(float b) {
+    if (b < 0.0f) b = 0.0f;
+    if (b > 1.0f) b = 1.0f;
+    whiteBlend = b;
+    Serial.printf("White blend set to %.2f\n", whiteBlend);
+}
+void setBlackThreshold(int t) {
+    blackThreshold = constrain(t, 0, 255);
+    Serial.printf("Black threshold set to %d\n", blackThreshold);
+}
+void setBlackBlend(float b) {
+    if (b < 0.0f) b = 0.0f;
+    if (b > 1.0f) b = 1.0f;
+    blackBlend = b;
+    Serial.printf("Black blend set to %.2f\n", blackBlend);
+}
+void setInvertColors(bool inv) {
+    invertColors = inv;
+    Serial.printf("Invert colors: %s\n", inv ? "ON" : "OFF");
+}
+void setShowLogger(bool on) {
+    showLoggerOnScreen = on;
+    if (on) {
+        Serial.println("On-screen logger: ON");
+        if (initVd) {
+            logLine = 1;
+            videodisplay.fillRect(15,160,205,90,videodisplay.RGB(255,255,255));
+        }
+    } else {
+        Serial.println("On-screen logger: OFF");
+        if (initVd) {
+            videodisplay.fillRect(15,160,205,90,0);
+        }
+    }
+}
+ 
+static uint32_t readLE32(uint8_t *buf, int ofs) {
+    return (uint32_t)buf[ofs] | ((uint32_t)buf[ofs+1] << 8) | ((uint32_t)buf[ofs+2] << 16) | ((uint32_t)buf[ofs+3] << 24);
+}
+ 
+uint32_t fnv1a_checksum_of_file(File &f) {
+    const size_t BUF = 1024;
+    uint8_t buffer[BUF];
+    uint32_t hash = 2166136261u;
+    f.seek(0);
+    while (true) {
+        int r = f.read(buffer, BUF);
+        if (r <= 0) break;
+        for (int i = 0; i < r; ++i) {
+            hash ^= (uint8_t)buffer[i];
+            hash *= 16777619u;
+        }
+    }
+    f.seek(0);
+    return hash;
+}
+ 
+uint32_t fnv1a_checksum_sd(String sdPath) {
+    File f = SD.open(sdPath, FILE_READ);
+    if (!f) return 0;
+    uint32_t h = fnv1a_checksum_of_file(f);
+    f.close();
+    return h;
+}
+uint32_t fnv1a_checksum_spiffs(String spPath) {
+    File f = SPIFFS.open(spPath, FILE_READ);
+    if (!f) return 0;
+    uint32_t h = fnv1a_checksum_of_file(f);
+    f.close();
+    return h;
+}
+bool filesMatchSDvsSPIFFS(String sdPath, String spPath) {
+    if (!SD.exists(sdPath) || !SPIFFS.exists(spPath)) return false;
+ 
+    File sdF = SD.open(sdPath, FILE_READ);
+    if (!sdF) return false;
+    File spF = SPIFFS.open(spPath, FILE_READ);
+    if (!spF) { sdF.close(); return false; }
+ 
+    size_t sdSize = sdF.size();
+    size_t spSize = spF.size();
+    if (sdSize != spSize) {
+        sdF.close();
+        spF.close();
+        return false;
+    }
+ 
+    uint32_t sdCrc = fnv1a_checksum_of_file(sdF);
+    uint32_t spCrc = fnv1a_checksum_of_file(spF);
+ 
+    sdF.close();
+    spF.close();
+    return (sdCrc != 0 && sdCrc == spCrc);
+}
+bool copyFileSDToSPIFFS(String sdPath, String spiffsPath) {
+    if (!SD.exists(sdPath)) {
+        Serial.printf("SD file not found: %s\n", sdPath);
+        return false;
+    }
+ 
+    File sdFile = SD.open(sdPath, FILE_READ);
+    if (!sdFile) {
+        Serial.printf("Failed to open SD file: %s\n", sdPath);
+        return false;
+    }
+ 
+    if (SPIFFS.exists(spiffsPath)) {
+        SPIFFS.remove(spiffsPath);
+    }
+ 
+    File spiffsFile = SPIFFS.open(spiffsPath, FILE_WRITE);
+    if (!spiffsFile) {
+        Serial.printf("Failed to open SPIFFS target: %s\n", spiffsPath);
+        sdFile.close();
+        return false;
+    }
+ 
+    const size_t bufSize = 4096;
+    uint8_t buf[bufSize];
+    while (sdFile.available()) {
+        size_t r = sdFile.read(buf, bufSize);
+        if (r == 0) break;
+        spiffsFile.write(buf, r);
+    }
+ 
+    spiffsFile.close();
+    sdFile.close();
+    Serial.printf("Copied SD:%s -> SPIFFS:%s\n", sdPath, spiffsPath);
+    return true;
+}
+ 
+static inline int luminance_int(int r, int g, int b) {
+    return ( (299 * r) + (587 * g) + (114 * b) ) / 1000;
+}
+ 
+void setWallpaperWhiteAlphaThreshold(int t) {
+    wallpaperWhiteAlphaThreshold = constrain(t, 0, 255);
+    Serial.printf("Wallpaper white-alpha threshold set to %d\n", wallpaperWhiteAlphaThreshold);
+}
+void setWallpaperWhiteAlphaMode(const String &arg) {
+    String a = arg;
+    a.toLowerCase();
+    if (a == "on" || a == "1" || a == "true") {
+        skipWallpaperBrightPixels = true;
+        Serial.println("Wallpaper white-alpha mode: ON");
+    } else if (a == "off" || a == "0" || a == "false") {
+        skipWallpaperBrightPixels = false;
+        Serial.println("Wallpaper white-alpha mode: OFF");
+    } else if (a == "toggle") {
+        skipWallpaperBrightPixels = !skipWallpaperBrightPixels;
+        Serial.printf("Wallpaper white-alpha mode toggled: %s\n", skipWallpaperBrightPixels ? "ON" : "OFF");
+    } else {
+        int v = a.toInt();
+        if (v >= 0 && v <= 255) setWallpaperWhiteAlphaThreshold(v);
+        else Serial.println("Invalid argument for wallpaper white-alpha. Use on/off/toggle or 0-255.");
+    }
+}
+ 
+void setWallpaperBlackAlphaThreshold(int t) {
+    wallpaperBlackAlphaThreshold = constrain(t, 0, 255);
+    Serial.printf("Wallpaper black-alpha threshold set to %d\n", wallpaperBlackAlphaThreshold);
+}
+void setWallpaperBlackAlphaMode(const String &arg) {
+    String a = arg;
+    a.toLowerCase();
+    if (a == "on" || a == "1" || a == "true") {
+        skipWallpaperDarkPixels = true;
+        Serial.println("Wallpaper black-alpha mode: ON");
+    } else if (a == "off" || a == "0" || a == "false") {
+        skipWallpaperDarkPixels = false;
+        Serial.println("Wallpaper black-alpha mode: OFF");
+    } else if (a == "toggle") {
+        skipWallpaperDarkPixels = !skipWallpaperDarkPixels;
+        Serial.printf("Wallpaper black-alpha mode toggled: %s\n", skipWallpaperDarkPixels ? "ON" : "OFF");
+    } else {
+        int v = a.toInt();
+        if (v >= 0 && v <= 255) setWallpaperBlackAlphaThreshold(v);
+        else Serial.println("Invalid argument for wallpaper black-alpha. Use on/off/toggle or 0-255.");
+    }
+}
+static inline bool isSkipLum(int lum, int whiteThresh, bool skipWhite, int blackThresh, bool skipBlack) {
+    if (skipWhite && lum >= whiteThresh) return true;
+    if (skipBlack && lum <= blackThresh) return true;
+    return false;
+}
+ 
+void renderBMPRegionFromSPIFFS(const char* spiffsPath, int dstX, int dstY, int regionW, int regionH, int dstW /*= WALLPAPER_W*/, int dstH /*= WALLPAPER_H*/) {
+    if (!SPIFFS.exists(spiffsPath)) {
+        Serial.printf("No BMP in SPIFFS: %s\n", spiffsPath);
+        return;
+    }
+    File bmp = SPIFFS.open(spiffsPath, FILE_READ);
+    if (!bmp) { Serial.println("Failed to open wallpaper in SPIFFS."); return; }
+    uint8_t header[54];
+    if ((int)bmp.read(header, 54) != 54) { Serial.println("BMP header read failed."); bmp.close(); return; }
+    if (header[0] != 'B' || header[1] != 'M') { Serial.println("Not a BMP file."); bmp.close(); return; }
+    uint32_t pixelDataOffset = readLE32(header, 10);
+    int32_t srcH_raw = (int32_t)readLE32(header, 22);
+    int32_t srcW = (int32_t)readLE32(header, 18);
+    uint16_t bpp = header[28] | (header[29] << 8);
+ 
+    if (bpp != 24 || srcW <= 0 || srcH_raw == 0) {
+        Serial.println("Unsupported or invalid BMP (must be 24bpp with nonzero height).");
+        bmp.close();
+        return;
+    }
+    bool topDown = false;
+    int srcH = srcH_raw;
+    if (srcH_raw < 0) {
+        topDown = true;
+        srcH = -srcH_raw;
+    }
+    int srcRowBytes = srcW * 3;
+    int padding = (4 - (srcRowBytes % 4)) % 4;
+    int srcRowStride = srcRowBytes + padding;
+    if (dstX < 0) { regionW += dstX; dstX = 0; }
+    if (dstY < 0) { regionH += dstY; dstY = 0; }
+    if (dstX + regionW > dstW) regionW = dstW - dstX;
+    if (dstY + regionH > dstH) regionH = dstH - dstY;
+    if (regionW <= 0 || regionH <= 0) { bmp.close(); return; }
+    uint8_t *rowBuf = (uint8_t*)malloc(srcRowStride);
+    if (!rowBuf) { Serial.println("Out of memory for region rowBuf."); bmp.close(); return; }
+    int *mapX = (int*)malloc(sizeof(int) * regionW);
+    if (!mapX) { Serial.println("Out of memory for mapX."); free(rowBuf); bmp.close(); return; }
+    for (int dx = 0; dx < regionW; ++dx) {
+        int dstCol = dstX + dx;
+        int sx = (int)((long long)dstCol * srcW / dstW);
+        if (sx < 0) sx = 0;
+        if (sx >= srcW) sx = srcW - 1;
+        mapX[dx] = sx;
+    }
+    const float brightnessMulF = ((float)bmpBrightnessPercent) / 100.0f;
+    const int wpWhiteThresh = wallpaperWhiteAlphaThreshold;
+    const int wpBlackThresh = wallpaperBlackAlphaThreshold;
+    const bool skipWPWhite = skipWallpaperBrightPixels;
+    const bool skipWPBlack = skipWallpaperDarkPixels;
+    if (!bmp.seek(pixelDataOffset)) {
+        Serial.println("Failed to seek to pixel data.");
+        free(mapX); free(rowBuf); bmp.close();
+        return;
+    }
+    for (int fileRow = 0; fileRow < srcH; ++fileRow) {
+        int got = bmp.read(rowBuf, srcRowStride);
+        if (got <= 0) memset(rowBuf, 0, srcRowStride);
+ 
+        int srcY = topDown ? fileRow : (srcH - 1 - fileRow);
+        long dyStart = (long)srcY * dstH / srcH;
+        long dyEnd = (((long)(srcY + 1) * dstH) - 1) / srcH;
+        if (dyStart < 0) dyStart = 0;
+        if (dyEnd >= dstH) dyEnd = dstH - 1;
+        if (dyStart > dyEnd) continue;
+        int overlapTop = (int)max((long)dstY, dyStart);
+        int overlapBottom = (int)min((long)(dstY + regionH - 1), dyEnd);
+        if (overlapTop > overlapBottom) continue;
+        int dstHeight = overlapBottom - overlapTop + 1;
+        int runStart = -1;
+        uint32_t runColor = 0;
+        int runLen = 0;
+ 
+        for (int dx = 0; dx < regionW; ++dx) {
+            int dstCol = dstX + dx;
+            int sx = mapX[dx];
+            int i = sx * 3;
+            uint8_t B = rowBuf[i + 0];
+            uint8_t G = rowBuf[i + 1];
+            uint8_t R = rowBuf[i + 2];
+            int rA = (int)(R * brightnessMulF + 0.5f);
+            int gA = (int)(G * brightnessMulF + 0.5f);
+            int bA = (int)(B * brightnessMulF + 0.5f);
+            if (rA < 0) rA = 0; else if (rA > 255) rA = 255;
+            if (gA < 0) gA = 0; else if (gA > 255) gA = 255;
+            if (bA < 0) bA = 0; else if (bA > 255) bA = 255;
+            if (invertColors) { rA = 255 - rA; gA = 255 - gA; bA = 255 - bA; }
+            int lum = luminance_int(rA, gA, bA);
+            if (isSkipLum(lum, wpWhiteThresh, skipWPWhite, wpBlackThresh, skipWPBlack)) {
+                if (runStart != -1 && runLen > 0) {
+                    videodisplay.fillRect(dstX + runStart, overlapTop, runLen, dstHeight, runColor);
+                    runStart = -1; runLen = 0;
+                }
+                continue;
+            }
+            if (lum >= whiteThreshold && whiteBlend > 0.0f) {
+                int sum = rA + gA + bA + 1;
+                int r_target = (lum * rA) / sum;
+                int g_target = (lum * gA) / sum;
+                int b_target = (lum * bA) / sum;
+                rA = (int)((1.0f - whiteBlend) * rA + whiteBlend * r_target + 0.5f);
+                gA = (int)((1.0f - whiteBlend) * gA + whiteBlend * g_target + 0.5f);
+                bA = (int)((1.0f - whiteBlend) * bA + whiteBlend * b_target + 0.5f);
+            }
+            if (lum <= blackThreshold && blackBlend > 0.0f) {
+                rA = (int)((1.0f - blackBlend) * rA + blackBlend * 0.0f + 0.5f);
+                gA = (int)((1.0f - blackBlend) * gA + blackBlend * 0.0f + 0.5f);
+                bA = (int)((1.0f - blackBlend) * bA + blackBlend * 0.0f + 0.5f);
+            }
+            if (bmpMonochrome) {
+                int gray = lum;
+                bA = gray; gA = gray; rA = (!redAvailable) ? 0 : gray;
+            } else {
+                gA = bA;
+                if (!redAvailable) rA = 0;
+            }
+            uint32_t color32 = videodisplay.RGB(rA, gA, bA);
+ 
+            if (runStart == -1) {
+                runStart = dx; runColor = color32; runLen = 1;
+            } else {
+                if (color32 == runColor) {
+                    runLen++;
+                } else {
+                    videodisplay.fillRect(dstX + runStart, overlapTop, runLen, dstHeight, runColor);
+                    runStart = dx; runColor = color32; runLen = 1;
+                }
+            }
+        }
+        if (runStart != -1 && runLen > 0) {
+            videodisplay.fillRect(dstX + runStart, overlapTop, runLen, dstHeight, runColor);
+        }
+ 
+        if (yieldEveryNRows > 0 && ((fileRow & (yieldEveryNRows - 1)) == 0)) yield();
+    }
+    free(mapX);
+    free(rowBuf);
+    bmp.close();
+}
+ 
+void renderBMPDotByDotFromSPIFFS(const char* spiffsPath, int dstW /*= WALLPAPER_W*/, int dstH /*= WALLPAPER_H*/) {
+    if (!WallpaperToggle) return;
+    if (FastBoot) return;
+    if (!SPIFFS.exists(spiffsPath)) {
+        Serial.printf("No BMP in SPIFFS: %s\n", spiffsPath);
+        return;
+    }
+ 
+    Serial.printf("FreeHeap before open: %u\n", (unsigned)ESP.getFreeHeap());
+ 
+    File bmp = SPIFFS.open(spiffsPath, FILE_READ);
+    if (!bmp) { Serial.println("Failed to open wallpaper in SPIFFS."); return; }
+ 
+    uint8_t header[54];
+    if ((int)bmp.read(header, 54) != 54) { Serial.println("BMP header read failed."); bmp.close(); return; }
+    if (header[0] != 'B' || header[1] != 'M') { Serial.println("Not a BMP file."); bmp.close(); return; }
+ 
+    uint32_t pixelDataOffset = readLE32(header, 10);
+    int32_t srcH_raw = (int32_t)readLE32(header, 22);
+    int32_t srcW = (int32_t)readLE32(header, 18);
+    uint16_t bpp = header[28] | (header[29] << 8);
+ 
+    if (bpp != 24 || srcW <= 0 || srcH_raw == 0) {
+        Serial.println("Unsupported or invalid BMP (must be 24bpp with nonzero height).");
+        bmp.close();
+        return;
+    }
+    bool topDown = false;
+    int srcH = srcH_raw;
+    if (srcH_raw < 0) { topDown = true; srcH = -srcH_raw; }
+ 
+    Serial.printf("Wallpaper BMP: %dx%d (topDown=%d), offset=%u, bpp=%u\n", srcW, srcH, (int)topDown, (unsigned)pixelDataOffset, (unsigned)bpp);
+ 
+    int srcRowBytes = srcW * 3;
+    int padding = (4 - (srcRowBytes % 4)) % 4;
+    int srcRowStride = srcRowBytes + padding;
+ 
+    // Try to allocate the row buffer; if PSRAM is available on ESP32, prefer that
+    uint8_t *rowBuf = nullptr;
+#ifdef ESP32
+    // Try PSRAM first (gives more headroom). If not available, fall back to heap malloc.
+    rowBuf = (uint8_t*) heap_caps_malloc((size_t)srcRowStride, MALLOC_CAP_SPIRAM);
+    if (rowBuf) {
+        Serial.printf("Allocated rowBuf in SPIRAM: %d bytes\n", srcRowStride);
+    } else {
+        rowBuf = (uint8_t*) malloc((size_t)srcRowStride);
+        Serial.printf("Allocated rowBuf in DRAM: %d bytes\n", srcRowStride);
+    }
+#else
+    rowBuf = (uint8_t*) malloc((size_t)srcRowStride);
+    Serial.printf("Allocated rowBuf in heap: %d bytes\n", srcRowStride);
+#endif
+ 
+    if (!rowBuf) {
+        Serial.println("Out of memory for rowBuf.");
+        bmp.close();
+        return;
+    }
+ 
+    Serial.printf("FreeHeap after rowBuf alloc: %u\n", (unsigned)ESP.getFreeHeap());
+ 
+    const float brightnessMulF = ((float)bmpBrightnessPercent) / 100.0f;
+    const int wpWhiteThresh = wallpaperWhiteAlphaThreshold;
+    const int wpBlackThresh = wallpaperBlackAlphaThreshold;
+    const bool skipWPWhite = skipWallpaperBrightPixels;
+    const bool skipWPBlack = skipWallpaperDarkPixels;
+ 
+    if (!bmp.seek(pixelDataOffset)) {
+        Serial.println("Failed to seek to pixel data.");
+        free(rowBuf);
+#ifdef ESP32
+        // if we used SPIRAM we should free using heap_caps_free
+        // heap_caps_free exists on ESP32; but free(rowBuf) also works if allocated with malloc.
+        // To be safe, use heap_caps_free when allocated from SPIRAM.
+        // (We cannot detect origin here easily; but heap_caps_free is safe to call.)
+        // heap_caps_free(rowBuf); // optional
+#endif
+        bmp.close();
+        return;
+    }
+ 
+    // Main loop: read each source row, compute corresponding dst Y range, and render columns.
+    for (int fileRow = 0; fileRow < srcH; ++fileRow) {
+        int got = bmp.read(rowBuf, srcRowStride);
+        if (got <= 0) memset(rowBuf, 0, srcRowStride);
+ 
+        int srcY = topDown ? fileRow : (srcH - 1 - fileRow);
+ 
+        long dyStart = (long)srcY * dstH / srcH;
+        long dyEnd = (((long)(srcY + 1) * dstH) - 1) / srcH;
+        if (dyStart < 0) dyStart = 0;
+        if (dyEnd >= dstH) dyEnd = dstH - 1;
+        if (dyStart > dyEnd) continue;
+ 
+        int dstHeight = (int)(dyEnd - dyStart + 1);
+ 
+        int runStart = -1;
+        uint32_t runColor = 0;
+        int runLen = 0;
+ 
+        // For each destination column compute source X (sx) on the fly — no mapX allocation.
+        for (int dx = 0; dx < dstW; ++dx) {
+            // compute sx from dx -> srcW/dstW mapping
+            // use 64-bit multiplication to be safe for large sizes
+            int sx = (int)(((long long)dx * (long long)srcW) / (long long)dstW);
+            if (sx < 0) sx = 0;
+            if (sx >= srcW) sx = srcW - 1;
+            int i = sx * 3;
+            uint8_t B = rowBuf[i + 0];
+            uint8_t G = rowBuf[i + 1];
+            uint8_t R = rowBuf[i + 2];
+ 
+            int rA = (int)(R * brightnessMulF + 0.5f);
+            int gA = (int)(G * brightnessMulF + 0.5f);
+            int bA = (int)(B * brightnessMulF + 0.5f);
+ 
+            if (rA < 0) rA = 0; else if (rA > 255) rA = 255;
+            if (gA < 0) gA = 0; else if (gA > 255) gA = 255;
+            if (bA < 0) bA = 0; else if (bA > 255) bA = 255;
+ 
+            if (invertColors) { rA = 255 - rA; gA = 255 - gA; bA = 255 - bA; }
+ 
+            int lum = luminance_int(rA, gA, bA);
+ 
+            if (isSkipLum(lum, wpWhiteThresh, skipWPWhite, wpBlackThresh, skipWPBlack)) {
+                if (runStart != -1 && runLen > 0) {
+                    videodisplay.fillRect(runStart, (int)dyStart, runLen, dstHeight, runColor);
+                    runStart = -1; runLen = 0;
+                }
+                continue;
+            }
+ 
+            if (lum >= whiteThreshold && whiteBlend > 0.0f) {
+                int sum = rA + gA + bA + 1;
+                int r_target = (lum * rA) / sum;
+                int g_target = (lum * gA) / sum;
+                int b_target = (lum * bA) / sum;
+                rA = (int)((1.0f - whiteBlend) * rA + whiteBlend * r_target + 0.5f);
+                gA = (int)((1.0f - whiteBlend) * gA + whiteBlend * g_target + 0.5f);
+                bA = (int)((1.0f - whiteBlend) * bA + whiteBlend * b_target + 0.5f);
+            }
+            if (lum <= blackThreshold && blackBlend > 0.0f) {
+                rA = (int)((1.0f - blackBlend) * rA + blackBlend * 0.0f + 0.5f);
+                gA = (int)((1.0f - blackBlend) * gA + blackBlend * 0.0f + 0.5f);
+                bA = (int)((1.0f - blackBlend) * bA + blackBlend * 0.0f + 0.5f);
+            }
+ 
+            if (bmpMonochrome) {
+                int gray = lum;
+                bA = gray; gA = gray; rA = (!redAvailable) ? 0 : gray;
+            } else {
+                gA = bA;
+                if (!redAvailable) rA = 0;
+            }
+ 
+            uint32_t color32 = videodisplay.RGB(rA, gA, bA);
+ 
+            if (runStart == -1) {
+                runStart = dx; runColor = color32; runLen = 1;
+            } else {
+                if (color32 == runColor) {
+                    runLen++;
+                } else {
+                    videodisplay.fillRect(runStart, (int)dyStart, runLen, dstHeight, runColor);
+                    runStart = dx; runColor = color32; runLen = 1;
+                }
+            }
+        }
+ 
+        if (runStart != -1 && runLen > 0) {
+            videodisplay.fillRect(runStart, (int)dyStart, runLen, dstHeight, runColor);
+        }
+ 
+        if (yieldEveryNRows > 0 && ((fileRow & (yieldEveryNRows - 1)) == 0)) yield();
+    }
+ 
+    // free rowBuf (if allocated in SPIRAM it is safe to free with free())
+    free(rowBuf);
+    bmp.close();
+    Serial.printf("Wallpaper rendered (dot-by-dot). FreeHeap after: %u\n", (unsigned)ESP.getFreeHeap());
+}
+ 
+ 
+#define ICON_COUNT 6
+ 
+const char* ICON_SD_PATHS[ICON_COUNT] = {
+    "/UserData/Icons/Utilities.bmp",
+    "/UserData/Icons/Files.bmp",
+    "/UserData/Icons/Restart.bmp",
+    "/UserData/Icons/Configure.bmp",
+    "/UserData/Icons/Programmer.bmp",
+    "/UserData/Icons/Terminal.bmp"
+};
+ 
+const char* ICON_SPIFFS_PATHS[ICON_COUNT] = {
+    "/icons/Utilities.bmp",
+    "/icons/Files.bmp",
+    "/icons/Restart.bmp",
+    "/icons/Configure.bmp",
+    "/icons/Programmer.bmp",
+    "/icons/Terminal.bmp"
+};
+ 
+int iconW[ICON_COUNT] = {0};
+int iconH[ICON_COUNT] = {0};
+uint32_t iconPixelOffset[ICON_COUNT] = {0};
+uint16_t iconBpp[ICON_COUNT] = {0};
+bool iconAvailableInSPIFFS[ICON_COUNT] = { false };
+ 
+bool readIconHeaderFromSPIFFS(int idx) {
+    if (idx < 0 || idx >= ICON_COUNT) return false;
+    const char* path = ICON_SPIFFS_PATHS[idx];
+    if (!SPIFFS.exists(path)) {
+        iconAvailableInSPIFFS[idx] = false;
+        return false;
+    }
+ 
+    File f = SPIFFS.open(path, FILE_READ);
+    if (!f) {
+        iconAvailableInSPIFFS[idx] = false;
+        return false;
+    }
+ 
+    uint8_t header[54];
+    if ((int)f.read(header, 54) != 54) {
+        f.close();
+        iconAvailableInSPIFFS[idx] = false;
+        return false;
+    }
+ 
+    if (header[0] != 'B' || header[1] != 'M') {
+        f.close();
+        iconAvailableInSPIFFS[idx] = false;
+        return false;
+    }
+ 
+    iconPixelOffset[idx] = readLE32(header, 10);
+    iconW[idx] = (int32_t)readLE32(header, 18);
+    iconH[idx] = (int32_t)readLE32(header, 22);
+    iconBpp[idx] = header[28] | (header[29] << 8);
+ 
+    if (iconW[idx] <= 0 || iconH[idx] <= 0 || iconBpp[idx] != 24) {
+        f.close();
+        iconAvailableInSPIFFS[idx] = false;
+        return false;
+    }
+ 
+    iconAvailableInSPIFFS[idx] = true;
+    f.close();
+    Serial.printf("Icon in SPIFFS: %s (%dx%d bpp=%d offset=%d)\n", path, iconW[idx], iconH[idx], iconBpp[idx], (int)iconPixelOffset[idx]);
+    return true;
+}
+ 
+void copyIconsFromSDToSPIFFSAndReadHeaders() {
+    if (!SPIFFS.exists("/icons")) {
+        SPIFFS.mkdir("/icons");
+    }
+ 
+    for (int i = 0; i < ICON_COUNT; ++i) {
+        String sdPath = ICON_SD_PATHS[i];
+        String spPath = ICON_SPIFFS_PATHS[i];
+ 
+        if (SD.exists(sdPath)) {
+            if (SPIFFS.exists(spPath) && filesMatchSDvsSPIFFS(sdPath, spPath)) {
+                Serial.printf("SPIFFS icon up-to-date, skipping copy: %s\n", spPath);
+            } else {
+                Serial.printf("Copying icon %d from SD to SPIFFS: %s -> %s\n", i, sdPath, spPath);
+                bool copied = copyFileSDToSPIFFS(sdPath, spPath);
+                if (!copied) {
+                    Serial.printf("Failed to copy icon from SD: %s\n", sdPath);
+                }
+            }
+        } else {
+            Serial.printf("No SD icon at: %s (will look for existing SPIFFS copy)\n", sdPath);
+        }
+ 
+        if (SPIFFS.exists(spPath)) {
+            if (!readIconHeaderFromSPIFFS(i)) {
+                Serial.printf("SPIFFS icon header invalid: %s\n", spPath);
+            }
+        } else {
+            iconAvailableInSPIFFS[i] = false;
+        }
+    }
+}
+ 
+void drawIconFromSPIFFS(int iconIndex, int dstX, int dstY, int dstW, int dstH) {
+    if (iconIndex < 0 || iconIndex >= ICON_COUNT) return;
+    if (!iconAvailableInSPIFFS[iconIndex]) {
+        videodisplay.line(dstX, dstY, dstX + dstW - 1, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        videodisplay.line(dstX + dstW - 1, dstY, dstX, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        return;
+    }
+ 
+    const char* path = ICON_SPIFFS_PATHS[iconIndex];
+    File f = SPIFFS.open(path, FILE_READ);
+    if (!f) {
+        videodisplay.line(dstX, dstY, dstX + dstW - 1, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        videodisplay.line(dstX + dstW - 1, dstY, dstX, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        return;
+    }
+ 
+    int srcW = iconW[iconIndex];
+    int srcH = iconH[iconIndex];
+    uint32_t pixelDataOffset = iconPixelOffset[iconIndex];
+    uint16_t bpp = iconBpp[iconIndex];
+ 
+    if (bpp != 24 || srcW <= 0 || srcH <= 0) {
+        f.close();
+        videodisplay.line(dstX, dstY, dstX + dstW - 1, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        videodisplay.line(dstX + dstW - 1, dstY, dstX, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        return;
+    }
+ 
+    int srcRowBytes = srcW * 3;
+    int padding = (4 - (srcRowBytes % 4)) % 4;
+    int srcRowStride = srcRowBytes + padding;
+ 
+    uint8_t* rowBuf = (uint8_t*)malloc(srcRowStride);
+    if (!rowBuf) {
+        Serial.println("Out of memory for icon row");
+        f.close();
+        return;
+    }
+ 
+    float brightnessMul = ((float)bmpBrightnessPercent) / 100.0f;
+ 
+    for (int dy = 0; dy < dstH; ++dy) {
+        int srcY = constrain((int)((long long)dy * srcH / dstH), 0, srcH - 1);
+ 
+        uint32_t rowOffset = pixelDataOffset + (uint32_t)((srcH - 1 - srcY) * srcRowStride);
+        f.seek(rowOffset);
+        int got = f.read(rowBuf, srcRowStride);
+        if (got <= 0) {
+            memset(rowBuf, 0, srcRowStride);
+        }
+ 
+        for (int dx = 0; dx < dstW; ++dx) {
+            int srcX = constrain((int)((long long)dx * srcW / dstW), 0, srcW - 1);
+            int i = srcX * 3;
+            uint8_t B = rowBuf[i + 0];
+            uint8_t G = rowBuf[i + 1];
+            uint8_t R = rowBuf[i + 2];
+ 
+            float r_s = (float)R * brightnessMul;
+            float g_s = (float)G * brightnessMul;
+            float b_s = (float)B * brightnessMul;
+ 
+            if (invertColors) {
+                r_s = 255.0f - r_s;
+                g_s = 255.0f - g_s;
+                b_s = 255.0f - b_s;
+            }
+ 
+            float luminance = 0.299f * r_s + 0.587f * g_s + 0.114f * b_s;
+            luminance = constrain(luminance, 0.0f, 255.0f);
+ 
+            if (luminance >= (float)ICON_WHITE_ALPHA_THRESHOLD) {
+                continue;
+            }
+ 
+            G = B;
+            if (!redAvailable) R = 0;
+ 
+            int rAdj = constrain((int)( (float)R * brightnessMul + 0.5f), 0, 255);
+            int gAdj = constrain((int)( (float)G * brightnessMul + 0.5f), 0, 255);
+            int bAdj = constrain((int)( (float)B * brightnessMul + 0.5f), 0, 255);
+ 
+            if (invertColors) {
+                rAdj = 255 - rAdj;
+                gAdj = 255 - gAdj;
+                bAdj = 255 - bAdj;
+            }
+ 
+            uint32_t color = videodisplay.RGB(rAdj, gAdj, bAdj);
+            videodisplay.fillRect(dstX + dx, dstY + dy, 1, 1, color);
+        }
+ 
+        if ((dy & 0x3F) == 0) yield();
+    }
+ 
+    free(rowBuf);
+    f.close();
+}
+String basenameNoExt(const String &fn) {
+    String name = fn;
+    int slash = name.lastIndexOf('/');
+    if (slash != -1) name = name.substring(slash + 1);
+    int dot = name.lastIndexOf('.');
+    if (dot != -1) name = name.substring(0, dot);
+    return name;
+}
+ 
+void copyAppIconsFromSDToSPIFFS() {
+    if (!SPIFFS.exists("/icons")) SPIFFS.mkdir("/icons");
+    Serial.println("Looking for appIcons");
+    Serial.println("App File Count: " + appFileCount);
+    for (int i = 0; i < appFileCount; ++i) {
+        String appfn = APP_FNB[i];
+        if (appfn.length() == 0) continue;
+        if (appfn.startsWith("listed")) continue;
+ 
+        String base = basenameNoExt(appfn);
+        String sdPath = "/UserData/Icons/AppIcons/" + base + ".bmp";
+        String spPath = "/icons/" + base + ".bmp";
+ 
+        if (SD.exists(sdPath)) {
+            if (!(SPIFFS.exists(spPath) && filesMatchSDvsSPIFFS(sdPath, spPath))) {
+                copyFileSDToSPIFFS(sdPath, spPath);
+                Serial.println("Found spPath matchup diskbarn: " + sdPath);
+            }
+        }
+    }
+}
+ 
+void drawIconFromSPIFFSPath(const char* spPath, int dstX, int dstY, int dstW, int dstH) {
+    if (!SPIFFS.exists(spPath)) {
+        videodisplay.line(dstX, dstY, dstX + dstW - 1, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        videodisplay.line(dstX + dstW - 1, dstY, dstX, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        return;
+    }
+ 
+    if (!gammaLUT_built) buildGammaLUT();
+ 
+    File f = SPIFFS.open(spPath, FILE_READ);
+    if (!f) {
+        videodisplay.line(dstX, dstY, dstX + dstW - 1, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        videodisplay.line(dstX + dstW - 1, dstY, dstX, dstY + dstH - 1, videodisplay.RGB(0,0,0));
+        return;
+    }
+ 
+    uint8_t header[54];
+    if ((int)f.read(header, 54) != 54) { f.close(); return; }
+    if (header[0] != 'B' || header[1] != 'M') { f.close(); return; }
+ 
+    uint32_t pixelDataOffset = readLE32(header, 10);
+    int srcW = (int32_t)readLE32(header, 18);
+    int srcH_raw = (int32_t)readLE32(header, 22);
+    uint16_t bpp = header[28] | (header[29] << 8);
+    if (bpp != 24 || srcW <= 0 || srcH_raw == 0) { f.close(); return; }
+ 
+    int srcH = srcH_raw > 0 ? srcH_raw : -srcH_raw;
+    int srcRowBytes = srcW * 3;
+    int padding = (4 - (srcRowBytes % 4)) % 4;
+    int srcRowStride = srcRowBytes + padding;
+    uint8_t* rowBuf = (uint8_t*)malloc(srcRowStride);
+    if (!rowBuf) { f.close(); return; }
+ 
+    float scaleW = (float)APP_ICON_MAX_SIZE / (float)srcW;
+    float scaleH = (float)APP_ICON_MAX_SIZE / (float)srcH;
+    float scaleMax = min(scaleW, scaleH);
+    if (scaleMax > 1.0f) scaleMax = 1.0f;
+ 
+    float scaleToDstW = (float)dstW / (float)srcW;
+    float scaleToDstH = (float)dstH / (float)srcH;
+    float scaleDst = min(scaleToDstW, scaleToDstH);
+    float finalScale = min(scaleMax, scaleDst);
+    if (finalScale <= 0.0f) finalScale = 1.0f;
+ 
+    int tgtW = max(1, (int)floor(srcW * finalScale + 0.5f));
+    int tgtH = max(1, (int)floor(srcH * finalScale + 0.5f));
+ 
+    int drawX = dstX + (dstW - tgtW) / 2;
+    int drawY = dstY + (dstH - tgtH) / 2;
+ 
+    uint8_t *lut = gammaLUT;
+    const float threshold = (float)ICON_WHITE_ALPHA_THRESHOLD;
+ 
+    for (int dy = 0; dy < tgtH; ++dy) {
+        int srcY = constrain((int)((long long)dy * srcH / tgtH), 0, srcH - 1);
+        uint32_t rowOffset = pixelDataOffset + (uint32_t)((srcH - 1 - srcY) * srcRowStride);
+        f.seek(rowOffset);
+        int got = f.read(rowBuf, srcRowStride);
+        if (got <= 0) memset(rowBuf, 0, srcRowStride);
+ 
+        for (int dx = 0; dx < tgtW; ++dx) {
+            int srcX = constrain((int)((long long)dx * srcW / tgtW), 0, srcW - 1);
+            int i = srcX * 3;
+            uint8_t B = rowBuf[i + 0];
+            uint8_t G = rowBuf[i + 1];
+            uint8_t R = rowBuf[i + 2];
+ 
+            int rAdj = lut[R];
+            int gAdj = lut[G];
+            int bAdj = lut[B];
+ 
+            if (invertColors) {
+                rAdj = 255 - rAdj;
+                gAdj = 255 - gAdj;
+                bAdj = 255 - bAdj;
+            }
+ 
+            float lum = 0.299f * (float)rAdj + 0.587f * (float)gAdj + 0.114f * (float)bAdj;
+            if (lum >= threshold) {
+                continue;
+            }
+            gAdj = bAdj;
+            if (!redAvailable) rAdj = 0;
+ 
+            rAdj = constrain(rAdj, 0, 255);
+            gAdj = constrain(gAdj, 0, 255);
+            bAdj = constrain(bAdj, 0, 255);
+ 
+            uint32_t color = videodisplay.RGB(rAdj, gAdj, bAdj);
+            videodisplay.fillRect(drawX + dx, drawY + dy, 1, 1, color);
+        }
+ 
+        if ((dy & 0x3F) == 0) yield();
+    }
+ 
+    free(rowBuf);
+    f.close();
+}
+ 
+void drawIconBuffer(int iconIndex, int dstX, int dstY, int dstW, int dstH) {
+    drawIconFromSPIFFS(iconIndex, dstX, dstY, dstW, dstH);
+}
+ 
+void requestElevation(String a, int b){
+    emBreakAction = b;
+    emBreak = true;
+    videodisplay.clear();
+    videodisplay.setTextColor(videodisplay.RGB(255,255,255),0);
+    videodisplay.setFont(Font8x8);
+    videodisplay.fillRect(60,60,255,150,videodisplay.RGB(255,255,255));
+    videodisplay.fillRect(65,180,50,20,0);
+    videodisplay.setCursor(83,182);
+    videodisplay.println("Y");
+    videodisplay.fillRect(140,180,50,20,0);
+    videodisplay.setCursor(158,182);
+    videodisplay.println("N");
+    videodisplay.setTextColor(0,videodisplay.RGB(255,255,255));
+    videodisplay.setCursor(65, 70);
+    videodisplay.println(a.c_str());
+    videodisplay.setFont(Font6x8);
+    String ambiguous = "Requested Ambiguous " + String(b);
+    videodisplay.println(ambiguous.c_str());
+}
+ 
+ 
+void CitCommandPPT(){
+  shell = true;
+  logLine = 1;
+  videodisplay.clear(videodisplay.RGB(255,255,255));
+  videodisplay.setFont(Font8x8);
+  videodisplay.rect(SCREEN_WIDTH/2-104, 50, SCREEN_WIDTH/2+32, 50, videodisplay.RGB(0,0,0));
+  videodisplay.setCursor(SCREEN_WIDTH/2-52, 70);
+  videodisplay.println("Command Shell");
+  videodisplay.fillRect(14, 255 + 5, 110, 20, 0);
+  videodisplay.setFont(Font6x8);
+  videodisplay.println("   type in 'help'");
+  videodisplay.setCursor(16, 255 + 6);
+  videodisplay.setTextColor(videodisplay.RGB(255,255,255), 0);
+  videodisplay.println("Backspace to wipe");
+  videodisplay.println("Enter to execute");
+  videodisplay.setFont(Font8x8);
+  videodisplay.rect(14,155,255+97,100,0);
+  videodisplay.fillRect(14,135,255+97,10,0);
+}
+ 
+void buildShell(String exeString) {
+    videodisplay.setTextColor(videodisplay.RGB(255,255,255), 0);
+    videodisplay.setCursor(20, 136);
+    videodisplay.fillRect(14, 135, 255 + 97, 10, 0);
+    if (executable.length() + exeString.length() <= 40) {
+        executable += exeString;
+        videodisplay.println(executable.c_str());
+        exeString = "";
+    }
+}
+ 
+void redrawConsole() {
+    if (!showLoggerOnScreen) return;
+    videodisplay.fillRect(14, 155, consoleW, consoleH, videodisplay.RGB(0, 0, 0));
+ 
+    videodisplay.setFont(Font6x8);
+    videodisplay.setTextColor(videodisplay.RGB(255,255,255), 0);
+ 
+    int visible = min(consoleCount, CONSOLE_VISIBLE_LINES);
+ 
+    int bottomIndex = (consoleHead - 1 - consoleScroll + CONSOLE_LINES) % CONSOLE_LINES;
+    int topIndex = (bottomIndex - (visible - 1) + CONSOLE_LINES) % CONSOLE_LINES;
+ 
+    int y = consoleY;
+    for (int i = 0; i < visible; ++i) {
+        int idx = (topIndex + i) % CONSOLE_LINES;
+        String &ln = consoleBuf[idx];
+        videodisplay.setCursor(consoleX, y);
+        videodisplay.print(ln.c_str());
+        y += consoleLineHeight;
+    }   
+}
+void consoleScrollUp() {
+    if (consoleCount <= CONSOLE_VISIBLE_LINES) return;
+    int maxScroll = consoleCount - CONSOLE_VISIBLE_LINES;
+    if (consoleScroll < maxScroll) {
+        consoleScroll++;
+        redrawConsole();
+    }
+}
+ 
+void consoleScrollDown() {
+    if (consoleScroll > 0) {
+        consoleScroll--;
+        redrawConsole();
+    }
+}
+void consoleOut(String a) {
+    Serial.println(a);
+ 
+    int start = 0;
+    while (start < a.length()) {
+        int idx = a.indexOf('\n', start);
+        String line;
+        if (idx == -1) {
+            line = a.substring(start);
+            start = a.length();
+        } else {
+            line = a.substring(start, idx);
+            start = idx + 1;
+        }
+        if (line.endsWith("\r")) {
+            line = line.substring(0, line.length() - 1);
+        }
+ 
+        consoleBuf[consoleHead] = line;
+        consoleHead = (consoleHead + 1) % CONSOLE_LINES;
+        if (consoleCount < CONSOLE_LINES) consoleCount++;
+ 
+        if (consoleScroll != 0) {
+            int maxScroll = max(0, consoleCount - CONSOLE_VISIBLE_LINES);
+            if (consoleScroll > maxScroll) consoleScroll = maxScroll;
+        }
+    }
+ 
+    redrawConsole();
+}
+ 
+void boolUpdate() {
+    File file = SPIFFS.open("/evil.txt", FILE_WRITE);
+    if (file) {
+        file.seek(0);
+        file.print("");
+        file.println(boolRes);
+        file.close();
+        Serial.printf("Bool updated to %s\n", boolRes.c_str());
+    } else {
+        Serial.println("Failed to update bool!");
+    }
+}
+void configUpdate() {
+    File file = SPIFFS.open("/systemConf.txt", FILE_WRITE);
+    if (file) {
+        file.println(boolRes);
+        file.close();
+        Serial.printf("Config updated! %s\n");
+    } else {
+        Serial.println("Failed to editConfig!");
+    }
+}
+void reRememberApp() {
+    File file = SPIFFS.open("/remApp.txt", FILE_WRITE);
+    if (file) {
+        file.seek(0);
+        file.print("");
+        file.println(appString);
+        file.close();
+        Serial.printf("String updated to %s\n", appString.c_str());
+    } else {
+        Serial.println("Failed to update appString!");
+    }
+}
+void boolTru() {
+    File file = SPIFFS.open("/evil.txt", FILE_READ);
+    String fileContent = "";
+    while (file.available()) {
+        fileContent += (char)file.read();
+    }
+    boolRes = fileContent;
+    file.close();
+    File app = SPIFFS.open("/remApp.txt", FILE_READ);
+    String appContent = "";
+    while (app.available()) {
+        appContent += (char)app.read();
+    }
+    appString = appContent;
+    app.close();
+}
+void drawLambda(int cx, int cy, float s, uint32_t fillColor, uint32_t strokeColor) {
+  auto scaled = [&](int off) -> int {
+    return (int)roundf(off * s);
+  };
+ 
+  int r = scaled(20);
+  videodisplay.fillCircle(cx, cy, r, videodisplay.RGB(255,255,255));
+ 
+  const int main_lines[][4] = {
+    { -10, -10,  -5, -10 },
+    {  -5, -10,  10,  10 },
+    {  10,  10,  15,  10 },
+    {   0,   0, -10,  10 }
+  };
+ 
+  const int outline_lines[][4] = {
+    { -10, -11,  -5, -11 },
+    {  -4, -11,  11,   9 },
+    {  11,   9,  16,   9 },
+    {  -1,  -1,  -9,   9 }
+  };
+ 
+  for (unsigned int i = 0; i < (sizeof(main_lines) / sizeof(main_lines[0])); ++i) {
+    int x1 = cx + scaled(main_lines[i][0]);
+    int y1 = cy + scaled(main_lines[i][1]);
+    int x2 = cx + scaled(main_lines[i][2]);
+    int y2 = cy + scaled(main_lines[i][3]);
+    videodisplay.line(x1, y1, x2, y2, strokeColor);
+  }
+ 
+  for (unsigned int i = 0; i < (sizeof(outline_lines) / sizeof(outline_lines[0])); ++i) {
+    int x1 = cx + scaled(outline_lines[i][0]);
+    int y1 = cy + scaled(outline_lines[i][1]);
+    int x2 = cx + scaled(outline_lines[i][2]);
+    int y2 = cy + scaled(outline_lines[i][3]);
+    videodisplay.line(x1, y1, x2, y2, strokeColor);
+  }
+}
+ 
+String configThrow(int id) {
+    switch(id) {
+        case 0: return "Wallpaper Tog";
+        case 1: return "Tooltips Tog";
+        case 2: return "Verbose UART";
+        case 3: return "Display Colour";
+        case 4: return "WiFi Core Tog";
+        case 5: return "Telemetry Data";
+        case 6: return "FastBoot";
+        case 7: return "Audio Driver";
+        default: return " --- ";
+    }
+}
+ 
+void configureMenu(int snapDrag = 1) {
+    configurationPending = true;
+    applaunched = true;
+    dragvalve = snapDrag;
+    previousDragValve = -1;
+    videodisplay.clear(videodisplay.RGB(0, 255, 255));
+    videodisplay.fillRect(67, 50, 255 + 6, 200, videodisplay.RGB(0, 0, 0));
+    videodisplay.setFont(Font8x8);
+    videodisplay.setCursor(SCREEN_WIDTH/2-48, 55);
+    videodisplay.println("Config Panel");
+    videodisplay.setFont(Font6x8);
+    videodisplay.setTextColor(0,videodisplay.RGB(255,255,255));
+    int bcount = 18; int y0 = 50; int y1 = 50; int spacing = 4; int bheight = 15;
+    for (int i = 0; i < bcount; i++) {
+        if (i<9){
+            int altY = (y0 + bheight) + spacing;
+            videodisplay.fillRect(80, altY, 100, bheight, videodisplay.RGB(255, 255, 255));
+            String label = configThrow(i);
+            if (configEnabled(i)) label += " *";
+            videodisplay.setCursor(82, altY + 3);
+            videodisplay.print(label.c_str());
+            y0 = altY;
+        } else {
+            int altY = (y1 + bheight) + spacing;
+            videodisplay.fillRect(212, altY, 100, bheight, videodisplay.RGB(255, 255, 255));
+            String label = configThrow(i);
+            if (configEnabled(i)) label += " *";
+            videodisplay.setCursor(214, altY + 3);
+            videodisplay.print(label.c_str());
+            y1 = altY;
+        }
+    }
+}
+void cleanFlashPartitions() {
+    const esp_partition_t* partition;
+    esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, NULL);
+ 
+    int partitionIndex = 0;
+ 
+    while (it != NULL) {
+        partition = esp_partition_get(it);
+        if (partitionIndex % 2 == 1) {
+            Serial.printf("Erasing partition: %s, Address: 0x%08x, Size: %d bytes\n",
+                          partition->label, partition->address, partition->size);
+            esp_err_t err = esp_partition_erase_range(partition, 0, partition->size);
+            if (err != ESP_OK) {
+                Serial.printf("Failed to erase partition %s: %s\n", partition->label, esp_err_to_name(err));
+            } else {
+                Serial.printf("Partition %s erased successfully.\n", partition->label);
+            }
+        }
+        partitionIndex++;
+        it = esp_partition_next(it);
+    }
+    esp_partition_iterator_release(it);
+}
+void handleBootloaderFlash() {
+    boolRes = "false";
+    boolUpdate();
+    appString = "";
+    reRememberApp();
+    File bootloaderFile = SD.open("/System/bootloader.bin");
+    if (!bootloaderFile) {Serial.println("file not found!");return;}
+    size_t bootloaderSize = bootloaderFile.size();
+    Serial.printf("size: %d bytes\n", bootloaderSize);
+    if (!Update.begin(bootloaderSize)) {
+        Serial.printf("Not enough space! Available: %d bytes, Needed: %d bytes\n", ESP.getFreeSketchSpace(), bootloaderSize);
+        Serial.printf("Error: update failed: %s\n", Update.errorString());
+        bootloaderFile.close();
+        return;
+    }
+    uint8_t buffer[2048];
+    while (bootloaderFile.available()) {
+        int len = bootloaderFile.read(buffer, sizeof(buffer));
+        int written = Update.write(buffer, len);
+        Serial.printf("Read %d bytes, Wrote %d bytes\n", len, written);
+        if (written != len) {
+            Serial.println("Write failed! Aborting update.");
+            Update.abort();
+            bootloaderFile.close();
+            return;
+        }
+    }
+    if (Update.end(true)) {
+        Serial.println("updated successfully. Restarting...");
+        ESP.restart();
+    } else {
+        Serial.printf("update failed: %s\n", Update.errorString());
+    }
+}
+void handleCProgFlash() {
+    boolRes = "false";
+    boolUpdate();
+    appString = "";
+    reRememberApp();
+    File bootloaderFile = SD.open("/apps/CProg.bin");
+    if (!bootloaderFile) {Serial.println("file not found!");return;}
+    size_t bootloaderSize = bootloaderFile.size();
+    Serial.printf("size: %d bytes\n", bootloaderSize);
+    if (!Update.begin(bootloaderSize)) {
+        Serial.printf("Not enough space! Available: %d bytes, Needed: %d bytes\n", ESP.getFreeSketchSpace(), bootloaderSize);
+        Serial.printf("Error: update failed: %s\n", Update.errorString());
+        bootloaderFile.close();
+        return;
+    }
+    uint8_t buffer[2048];
+    while (bootloaderFile.available()) {
+        int len = bootloaderFile.read(buffer, sizeof(buffer));
+        int written = Update.write(buffer, len);
+        Serial.printf("Read %d bytes, Wrote %d bytes\n", len, written);
+        if (written != len) {
+            Serial.println("Write failed! Aborting update.");
+            Update.abort();
+            bootloaderFile.close();
+            return;
+        }
+    }
+    if (Update.end(true)) {
+        Serial.println("updated successfully. Restarting...");
+        ESP.restart();
+    } else {
+        Serial.printf("update failed: %s\n", Update.errorString());
+    }
+}
+void kernelFunction() {
+    startup = false;
+    if (warning){warningDrum();} else {home();}
+}
+void warningDrum() {
+  videodisplay.fillRect(60,60,255,150,videodisplay.RGB(255,255,255));
+  videodisplay.setCursor(164, 70);
+  videodisplay.print("WARNING");
+  videodisplay.setCursor(70, 90);
+  videodisplay.setTextColor(0,videodisplay.RGB(255,255,255));
+  videodisplay.println(warningMessage.c_str());
+  videodisplay.setFont(Font6x8);
+  videodisplay.println("-Check if component is present");
+  videodisplay.println("-Restart your machine");
+  videodisplay.println("-Connect to a stable power supply");
+  videodisplay.fillRect(170,180,40,10,0);
+  videodisplay.setCursor(173,181);
+  videodisplay.setTextColor(videodisplay.RGB(255,255,255),0);
+  videodisplay.print("OK");
+  videodisplay.setCursor(255+60,255+10);
+  videodisplay.println("Citadela");
+}
+ 
+void showTooltipForButton(int btnIndex, const char* text) {
+    if (!TooltipsToggle) return;
+    int x = 15;
+    int startY = 18;
+    int size = 20;
+    int spacing = 10;
+    int y = startY + (btnIndex) * (size + spacing);
+    strncpy(tooltipText, text, sizeof(tooltipText)-1);
+    tooltipText[sizeof(tooltipText)-1] = '\0';
+    int padding = 5;
+    int charW = 6;
+    int textLen = strlen(tooltipText);
+    int tw = textLen * charW + padding * 2;
+    int th = 10 + padding * 2;
+    int tx = x + size + 6;
+    int ty = y;
+    if (tx + tw > WALLPAPER_W) tx = x - tw - 6;
+    if (tx < 0) tx = 0;
+    if (ty + th > WALLPAPER_H) ty = WALLPAPER_H - th;
+    videodisplay.fillRect(tx, ty, tw, th, videodisplay.RGB(0,0,0));
+    videodisplay.rect(tx, ty, tw, th, videodisplay.RGB(255,255,255));
+    videodisplay.setFont(Font6x8);
+    videodisplay.setTextColor(videodisplay.RGB(255,255,255), 0);
+    videodisplay.setCursor(tx + padding, ty + padding);
+    videodisplay.print(tooltipText);
+    tooltipIndex = btnIndex;
+    tooltipX = tx;
+    tooltipY = ty;
+    tooltipW = tw;
+    tooltipH = th;
+    tooltipShown = true;
+}
+ 
+void hideTooltip() {
+    if (!tooltipShown) return;
+    renderBMPRegionFromSPIFFS(WALLPAPER_SPIFFS_PATH, tooltipX, tooltipY, tooltipW, tooltipH, WALLPAPER_W, WALLPAPER_H);
+    tooltipShown = false;
+    tooltipIndex = -1;
+    tooltipX = tooltipY = tooltipW = tooltipH = 0;
+    tooltipText[0] = '\0';
+}
+ 
+void drawButtons(int selected){
+    int btnNumber = 6;
+    int x = 15;
+    int startY = 18;
+    int size = 20;
+    int spacing = 10;
+    int lockedCol = 255;
+ 
+    for (int i = 0; i < btnNumber; i++) {
+        int y = startY + i * (size + spacing);
+        videodisplay.fillRect(x,y,size,size,videodisplay.RGB(lockedCol, lockedCol, lockedCol));
+ 
+        int idx = i;
+        if (iconAvailableInSPIFFS[idx]) {
+            drawIconBuffer(idx, x, y, size, size);
+        } else {
+            videodisplay.line(x, y, x + size - 1, y + size - 1, videodisplay.RGB(0,0,0));
+            videodisplay.line(x + size - 1, y, x, y + size - 1, videodisplay.RGB(0,0,0));
+        }
+    }
+}
+ 
+void home() {
+    dragvalve = 1;
+    previousDragValve = -1;
+    tooltipShown = false;
+    tooltipIndex = -1;
+    hoverStartMillis = 0;
+ 
+    videodisplay.clear();
+    if (SPIFFS.exists(WALLPAPER_SPIFFS_PATH)) {
+        Serial.println("Rendering wallpaper from SPIFFS...");
+        renderBMPDotByDotFromSPIFFS(WALLPAPER_SPIFFS_PATH, WALLPAPER_W, WALLPAPER_H);
+    }
+    videodisplay.fillRect(0, 270, 385, 15, videodisplay.RGB(255,255,255));
+    videodisplay.fillRect(11, 18, 2, 20, videodisplay.RGB(255,255,255));
+    videodisplay.fillRect(37, 18, 2, 20, videodisplay.RGB(255,255,255));
+    updateDisplay();
+    logLine = 1;
+    Serial.println("Reading DiskBarn, seeking SDF");
+    Serial.println(String(cardSize + usedBytes + freeBytes));
+    Serial.println("Stage 2 Log: DEF Drivers init");
+    videodisplay.setFont(Font8x8);
+    drawButtons(0);
+    videodisplay.setTextColor(videodisplay.RGB(255,255,255),0);
+    videodisplay.setFont(Font8x8);
+    videodisplay.setCursor(255+70, 255 +8);
+    Serial.println("UI Loaded properly");
+    videodisplay.setCursor(CLOCK_POS_X, CLOCK_POS_Y);
+    videodisplay.setTextColor(0, videodisplay.RGB(255,255,255));
+    videodisplay.println("00:00:00");
+    videodisplay.setCursor(CLOCK_POS_X - 65, CLOCK_POS_Y + 1);
+    videodisplay.setFont(Font6x8);
+    videodisplay.println("2000-01-01");
+    videodisplay.setFont(Font8x8);
+    visualheap();
+}
+ 
+void utilitiesMenu() {
+    applaunched = true;
+    util = true;
+    dragvalve = 0;
+    previousDragValve = -1;
+    videodisplay.setFont(Font8x8);
+    videodisplay.clear();
+    listAppFiles();
+}
+ 
+void listAppFiles() {
+    if (appFileCount <= 0) {
+        videodisplay.setCursor(20, 40);
+        videodisplay.print("No files in /apps/");
+        applaunched = false;
+        util = false;
+        return;
+    }
+ 
+    const int boxSizeX = 65;
+    const int boxSizeY = 28; // leave room for label
+    const int spacing = 10;
+    const int columns = 5;
+    const int startX = 9;
+    const int startY = 40;
+ 
+    videodisplay.setCursor(SCREEN_WIDTH/2 - 36, 20);
+    videodisplay.setTextColor(videodisplay.RGB(255,255,255), 0);
+    videodisplay.setFont(Font8x8);
+    videodisplay.print("Utilities");
+    videodisplay.setFont(Font6x8);
+ 
+    for (int i = 0; i < appFileCount; i++) {
+        String filename = APP_FNB[i];
+        if (filename.startsWith("listed")) continue;
+ 
+        int row = i / columns;
+        int col = i % columns;
+        int x = startX + col * (boxSizeX + spacing);
+        int y = startY + row * (boxSizeY + spacing);
+ 
+        bool isSelected = (i == dragvalve);
+ 
+        videodisplay.rect(x, y, boxSizeX, boxSizeY,
+                          isSelected ? videodisplay.RGB(200,200,200) : videodisplay.RGB(255,255,255));
+ 
+        // icon area (padded inside box)
+        String base = basenameNoExt(filename);
+        String spIconPath = "/icons/" + base + ".bmp";
+        int iconPad = 4;
+        int iconWdst = boxSizeX - iconPad*2;
+        int iconHdst = boxSizeY - 12; // leave space for label on bottom
+        int iconX = x + iconPad;
+        int iconY = y + iconPad;
+ 
+        if (SPIFFS.exists(spIconPath)) {
+            drawIconFromSPIFFSPath(spIconPath.c_str(), iconX, iconY, iconWdst, iconHdst);
+        } else {
+            // fallback placeholder
+            videodisplay.line(iconX, iconY, iconX + iconWdst - 1, iconY + iconHdst - 1, videodisplay.RGB(0,0,0));
+            videodisplay.line(iconX + iconWdst - 1, iconY, iconX, iconY + iconHdst - 1, videodisplay.RGB(0,0,0));
+        }
+ 
+        // label (truncate to fit)
+        String label = base;
+        if (label.length() > 10) label = label.substring(0, 10);
+        videodisplay.setCursor(x + 2, y + boxSizeY - 9);
+        videodisplay.print(label.c_str());
+    }
+ 
+    videodisplay.setFont(Font8x8);
+}
+ 
+ 
+void flashApp() {
+    String structure = String("/apps/" + boolRes);
+    File appFile = SD.open(appString);
+    boolRes = "false";
+    boolUpdate();
+    appString = "";
+    reRememberApp();
+    if (!appFile) {
+        Serial.println("file not found!");
+        return;
+    }
+    size_t appSize = appFile.size();
+    Serial.printf("Firmware file size: %d bytes\n", appSize);
+    size_t freeSpace = ESP.getFreeSketchSpace();
+    Serial.printf("Available space: %d bytes\n", freeSpace);
+ 
+    if (appSize > freeSpace) {
+        Serial.printf("Not enough space! Available: %d bytes, Needed: %d bytes\n", freeSpace, appSize);
+        appFile.close();
+        return;
+    }
+    if (!Update.begin(appSize)) {
+        Serial.printf("Error: update failed at begin: %s\n", Update.errorString());
+        appFile.close();
+        return;
+    }
+    uint8_t buffer[2048];
+    while (appFile.available()) {
+        int len = appFile.read(buffer, sizeof(buffer));
+        int written = Update.write(buffer, len);
+        Serial.printf("Read %d bytes, Wrote %d bytes\n", len, written);
+        if (written != len) {
+            Serial.printf("Write failed! Aborting update. Written: %d, Expected: %d\n", written, len);
+            Update.abort();
+            appFile.close();
+            return;
+        }
+    }
+    if (Update.end(true)) {
+        Serial.println("Firmware update successful. Restarting...");
+        ESP.restart();
+    } else {
+        Serial.printf("update failed: %s\n", Update.errorString());
+    }
+    appFile.close();
+}
+ 
+void rememberApp(){
+    appString = "/apps/"+appName;
+    Serial.printf("App string: %s, appName: %s\n", appString.c_str(), appName.c_str());
+}
+ 
+void handleNavigation() {
+    if (util) {
+        if (dragvalve != previousDragValve) {
+            previousDragValve = dragvalve;
+            videodisplay.fillRect(0, 30, 255+255, 150, 0);
+            listAppFiles();
+        }
+    }
+}
+ 
+void handleSelection() {
+    if (appFileCount > 0) {
+        if (util) {
+            appName = APP_FNB[dragvalve];
+            Serial1.println("VDCLoadNSS");
+            boolRes = "/apps/" + appName;
+            boolUpdate();
+            ESP.restart();
+        }
+    } else {
+        utilitiesMenu();
+    }
+}
+ 
+void listSavedFiles() {
+    SDInUse = true;
+ 
+    videodisplay.setFont(Font8x8);
+    videodisplay.setCursor(80, 90);
+    videodisplay.print("SD Files:");
+ 
+    videodisplay.setFont(Font6x8);
+    int yPosition = 100;
+ 
+    for (int i = 0; i < appFileCount; i++) {
+        videodisplay.setCursor(80, yPosition);
+        videodisplay.print(FNB[i]);
+        yPosition += 8;
+ 
+        if (yPosition > 220) {
+            videodisplay.setCursor(80, yPosition);
+            videodisplay.print("More files...");
+            break;
+        }
+    }
+ 
+    videodisplay.setFont(Font8x8);
+    SDInUse = false;
+}
+ 
+void fileExplorer(){
+  applaunched = true;
+  fE = true;
+  dragvalve = 1;
+  previousDragValve = -1;
+  videodisplay.clear(videodisplay.RGB(0,255,255));
+  videodisplay.fillRect(67, 60, 255+6, 200, videodisplay.RGB(0,0,0));
+  videodisplay.fillRect(70, 235, 50, 15, videodisplay.RGB(255,255,255));
+  videodisplay.setTextColor(0,videodisplay.RGB(255,255,255));
+  videodisplay.setCursor(70, 238);
+  videodisplay.println(" MKDir");
+  videodisplay.fillRect(125, 235, 50, 15, videodisplay.RGB(255,255,255));
+  videodisplay.setCursor(126, 238);
+  videodisplay.println(" MKFile");
+  videodisplay.fillRect(180, 235, 50, 15, videodisplay.RGB(255,255,255));
+  videodisplay.setCursor(181, 238);
+  videodisplay.println(" Delete");
+  videodisplay.fillRect(235, 235, 50, 15, videodisplay.RGB(255,255,255));
+  videodisplay.setCursor(236, 238);
+  videodisplay.println(" Format");
+  videodisplay.fillRect(290, 235, 35, 15, videodisplay.RGB(255,255,255));
+  videodisplay.setCursor(291, 238);
+  videodisplay.println(" Exit");
+  videodisplay.setTextColor(videodisplay.RGB(255,255,255),0);
+  videodisplay.setCursor(150, 65);
+  videodisplay.print("File Explorer");
+  Serial1.println("listFiles");
+  listSavedFiles();
+}
+ 
+void saveFNBuffer() {
+    SDInUse = true;
+    appFileCount = 0;
+ 
+    File dir = SD.open("/apps");
+    if (!dir) {
+        Serial.println("Failed to open directory");
+        SDInUse = false;
+        return;
+    }
+ 
+    Serial.println("Files in /apps/:");
+ 
+    while (true) {
+        File entry = dir.openNextFile();
+        if (!entry || appFileCount >= MAX_FILES) break;
+ 
+        strncpy(APP_FNB[appFileCount], entry.name(), MAX_NAME_LENGTH - 1);
+        APP_FNB[appFileCount][MAX_NAME_LENGTH - 1] = '\0';
+        appFileCount++;
+        Serial.print("- ");
+        Serial.print(entry.name());
+        if (entry.isDirectory()) {
+            Serial.println(" [DIR]");
+            File subDir = SD.open(entry.name());
+            if (subDir) {
+                while (true) {
+                    File subEntry = subDir.openNextFile();
+                    if (!subEntry || appFileCount >= MAX_FILES) break;
+                    strncpy(APP_FNB[appFileCount], subEntry.name(), MAX_NAME_LENGTH - 1);
+                    APP_FNB[appFileCount][MAX_NAME_LENGTH - 1] = '\0';
+                    appFileCount++;
+                    Serial.print("  - ");
+                    Serial.print(subEntry.name());
+                    if (subEntry.isDirectory()) Serial.println(" [DIR]");
+                    else Serial.println(" [FILE]");
+                    subEntry.close();
+                }
+                subDir.close();
+            }
+        } else {
+            Serial.println(" [FILE]");
+        }
+        entry.close();
+    }
+    dir.close();
+    Serial.println("\nStored Filenames:");
+    for (int i = 0; i < appFileCount; i++) {
+        Serial.println(APP_FNB[i]);
+    }
+    File dirA = SD.open("/");
+    if (!dirA) return;
+    while (true) {
+        File entry = dirA.openNextFile();
+        if (!entry || FileCount >= MAX_FILES) break;
+        strncpy(FNB[FileCount], entry.name(), MAX_NAME_LENGTH - 1);
+        FNB[FileCount][MAX_NAME_LENGTH - 1] = '\0';
+        FileCount++;
+        entry.close();
+    }
+    dirA.close();
+    SDInUse = false;
+}
+ 
+void structImagePath(String straightPath , String curlPath = WALLPAPER_SD_PATH){
+    String actualPath = String(curlPath.substring(0, String(WALLPAPER_SD_PATH).length()-11) + straightPath +".bmp");
+    Serial.println(actualPath);
+    consoleOut("New sd path declared: " + actualPath);
+    consoleOut("Old sd decay path: " + curlPath);
+    WALLPAPER_SD_PATH = actualPath;
+    Serial.println(WALLPAPER_SD_PATH);
+}
+ 
+int verde(String a) {
+    if (a == "reboot") return 1;
+    if (a == "pue core") return 2;
+    if (a == "help") return 3;
+    if (a == "reboot full") return 4;
+    if (a.startsWith("loadapp")) return 5;
+    if (a.startsWith("reverie dacman")) return 6;
+    if (a == "videodisplay mode quality") return 7;
+    if (a == "videodisplay mode performance") return 8;
+    if (a.startsWith("bmpbright")) return 9;
+    if (a.startsWith("bmpmono")) return 10;
+    if (a.startsWith("bmpwhite")) return 11;
+    if (a.startsWith("bmpblack")) return 12;
+    if (a.startsWith("bmpinvert")) return 13;
+    if (a.startsWith("logshow")) return 14;
+    if (a.startsWith("bmpwhitealpha")) return 15;
+    if (a.startsWith("bmpblackalpha")) return 16;
+    if (a.startsWith("corelambda")){
+        String b = a.substring(String("corelambda").length() + 1);
+        Serial.println(b);
+        if (b == "penconf"){
+            return 17;  
+        } else {
+            return 0;
+        }
+    }
+    if (a.startsWith("coreimage")){
+        String imgName = a.substring(String("coreimage").length() + 1);
+        structImagePath(imgName);
+        return 18;
+    }
+    return 0;
+}
+ 
+void execute(String a) {
+    switch (verde(a)) {
+        case 0: consoleOut(String("Unknown Command : " + a)); break;
+        case 1: ESP.restart(); break;
+        case 2: boolRes = "fsd"; boolUpdate(); ESP.restart(); break;
+        case 3:
+            consoleOut("reboot - restart system");
+            consoleOut("reboot full - bootstrap entry");
+            consoleOut("reverie dacman (argF) (argD) - speaker test");
+            consoleOut("videodisplay mode (argD) - display mode");
+            consoleOut("pue core - clean file system");
+            consoleOut("loadapp (argSTR) - appB");
+            consoleOut("bmpbright <percent> - set wallpaper brightness (0..200)");
+            consoleOut("bmpmono <on|off|toggle> - set/toggle monochrome mode");
+            consoleOut("bmpwhite <threshold> <blend> - set white regulation");
+            consoleOut("bmpblack <threshold> <blend> - set black regulation");
+            consoleOut("bmpinvert <on|off|toggle> - invert colors (v -> 255 - v)");
+            consoleOut("logshow <on|off|toggle> - show/hide on-screen logger");
+            consoleOut("bmpwhitealpha <threshold|on|off|toggle>");
+            consoleOut("bmpblackalpha <threshold|on|off|toggle>");
+            consoleOut("corelambda <DEFINE BOOLRES> - Reloads Diskbarn");
+            consoleOut("coreimage <DEFINE IMAGE> - Sets a desired wallpaper (.bmp)");
+            break;
+        case 4: boolRes = "trueBootloader"; boolUpdate(); ESP.restart(); break;
+        case 5: consoleOut("Loading app"); break;
+        case 6: consoleOut("Dacman reverie"); break;
+        case 7: consoleOut("Switching to quality display mode"); break;
+        case 8: consoleOut("Switching to resolution display mode"); break;
+ 
+        case 9: {
+            int idx = a.indexOf(' ');
+            int v = 100;
+            if (idx != -1) v = a.substring(idx + 1).toInt();
+            setBMPBrightness(v);
+            if (SPIFFS.exists(WALLPAPER_SPIFFS_PATH)) {
+                renderBMPDotByDotFromSPIFFS(WALLPAPER_SPIFFS_PATH, WALLPAPER_W, WALLPAPER_H);
+            }
+            break;
+        }
+ 
+        case 10: {
+            int idx = a.indexOf(' ');
+            String arg = "";
+            if (idx != -1) arg = a.substring(idx + 1);
+            arg.toLowerCase();
+            if (arg == "on" || arg == "1" || arg == "true") {
+                setBMPMonochrome(true);
+            } else if (arg == "off" || arg == "0" || arg == "false") {
+                setBMPMonochrome(false);
+            } else {
+                setBMPMonochrome(!bmpMonochrome);
+            }
+            if (SPIFFS.exists(WALLPAPER_SPIFFS_PATH)) {
+                renderBMPDotByDotFromSPIFFS(WALLPAPER_SPIFFS_PATH, WALLPAPER_W, WALLPAPER_H);
+            }
+            break;
+        }
+ 
+        case 11: {
+            int idx = a.indexOf(' ');
+            if (idx != -1) {
+                String rest = a.substring(idx + 1);
+                rest.trim();
+                int idx2 = rest.indexOf(' ');
+                if (idx2 == -1) {
+                    int t = rest.toInt();
+                    setWhiteThreshold(t);
+                } else {
+                    int t = rest.substring(0, idx2).toInt();
+                    float b = rest.substring(idx2 + 1).toFloat();
+                    setWhiteThreshold(t);
+                    setWhiteBlend(b);
+                }
+            } else {
+                Serial.printf("Current whiteThreshold=%d, whiteBlend=%.2f\n", whiteThreshold, whiteBlend);
+            }
+            if (SPIFFS.exists(WALLPAPER_SPIFFS_PATH)) {
+                renderBMPDotByDotFromSPIFFS(WALLPAPER_SPIFFS_PATH, WALLPAPER_W, WALLPAPER_H);
+            }
+            break;
+        }
+ 
+        case 12: {
+            int idx = a.indexOf(' ');
+            if (idx != -1) {
+                String rest = a.substring(idx + 1);
+                rest.trim();
+                int idx2 = rest.indexOf(' ');
+                if (idx2 == -1) {
+                    int t = rest.toInt();
+                    setBlackThreshold(t);
+                } else {
+                    int t = rest.substring(0, idx2).toInt();
+                    float b = rest.substring(idx2 + 1).toFloat();
+                    setBlackThreshold(t);
+                    setBlackBlend(b);
+                }
+            } else {
+                Serial.printf("Current blackThreshold=%d, blackBlend=%.2f\n", blackThreshold, blackBlend);
+            }
+            if (SPIFFS.exists(WALLPAPER_SPIFFS_PATH)) {
+                renderBMPDotByDotFromSPIFFS(WALLPAPER_SPIFFS_PATH, WALLPAPER_W, WALLPAPER_H);
+            }
+            break;
+        }
+ 
+        case 13: {
+            int idx = a.indexOf(' ');
+            String arg = "";
+            if (idx != -1) arg = a.substring(idx + 1);
+            arg.toLowerCase();
+            if (arg == "on" || arg == "1" || arg == "true") {
+                setInvertColors(true);
+            } else if (arg == "off" || arg == "0" || arg == "false") {
+                setInvertColors(false);
+            } else {
+                setInvertColors(!invertColors);
+            }
+            if (SPIFFS.exists(WALLPAPER_SPIFFS_PATH)) {
+                renderBMPDotByDotFromSPIFFS(WALLPAPER_SPIFFS_PATH, WALLPAPER_W, WALLPAPER_H);
+            }
+            break;
+        }
+ 
+        case 14: {
+            int idx = a.indexOf(' ');
+            String arg = "";
+            if (idx != -1) arg = a.substring(idx + 1);
+            arg.toLowerCase();
+            if (arg == "on" || arg == "1" || arg == "true") {
+                setShowLogger(true);
+            } else if (arg == "off" || arg == "0" || arg == "false") {
+                setShowLogger(false);
+            } else {
+                setShowLogger(!showLoggerOnScreen);
+            }
+            break;
+        }
+ 
+        case 15: {
+            int idx = a.indexOf(' ');
+            String arg = "";
+            if (idx != -1) arg = a.substring(idx + 1);
+            arg.trim();
+            if (arg.length() == 0) {
+                Serial.printf("Wallpaper white-alpha threshold = %d, mode = %s\n", wallpaperWhiteAlphaThreshold, skipWallpaperBrightPixels ? "ON" : "OFF");
+            } else {
+                setWallpaperWhiteAlphaMode(arg);
+            }
+            if (SPIFFS.exists(WALLPAPER_SPIFFS_PATH)) {
+                renderBMPDotByDotFromSPIFFS(WALLPAPER_SPIFFS_PATH, WALLPAPER_W, WALLPAPER_H);
+            }
+            break;
+        }
+ 
+        case 16: {
+            int idx = a.indexOf(' ');
+            String arg = "";
+            if (idx != -1) arg = a.substring(idx + 1);
+            arg.trim();
+            if (arg.length() == 0) {
+                Serial.printf("Wallpaper black-alpha threshold = %d, mode = %s\n", wallpaperBlackAlphaThreshold, skipWallpaperDarkPixels ? "ON" : "OFF");
+            } else {
+                setWallpaperBlackAlphaMode(arg);
+            }
+            if (SPIFFS.exists(WALLPAPER_SPIFFS_PATH)) {
+                renderBMPDotByDotFromSPIFFS(WALLPAPER_SPIFFS_PATH, WALLPAPER_W, WALLPAPER_H);
+            }
+            break;
+        }
+        case 17: {
+            Serial.println("Preparing pendingConfiguration: write config to SPIFFS and restart to copy to SD");
+            writeSystemConfigToSPIFFS();
+            File flag = SPIFFS.open("/pending_conf.flag", FILE_WRITE);
+            if (flag) {
+                flag.print("1");
+                flag.close();
+            } else {
+                Serial.println("Warning: couldn't create pending_conf.flag");
+            }
+ 
+            boolRes = "false";
+            boolUpdate();
+ 
+            ESP.restart();
+            break;
+        }
+        case 18: {consoleOut("Wallpaper pends update string.");}
+ 
+    }
+}
+ 
+void processHoverAndTooltip() {
+    if (util || fE || applaunched || emBreak || configurationPending || shell) {
+        if (tooltipShown) {
+            tooltipShown = false;
+            tooltipIndex = -1;
+            tooltipX = 0;
+            tooltipY = 0;
+            tooltipW = 0;
+            tooltipH = 0;
+            tooltipText[0] = '\0';
+        }
+ 
+        hoverStartMillis = 0;
+        return;
+    }
+ 
+    if (dragvalve != previousDragValve) {
+        hoverStartMillis = 0;
+        if (tooltipShown) hideTooltip();
+        return;
+    }
+ 
+    if (dragvalve == previousDragValve && dragvalve >= 1) {
+        if (hoverStartMillis == 0) {
+            hoverStartMillis = millis();
+            return;
+        }
+        unsigned long elapsed = millis() - hoverStartMillis;
+        if (elapsed >= HOVER_DELAY_MS && !tooltipShown) {
+            int idx = dragvalve - 1;
+            const char* labels[6] = { "Utilities", "Files", "Restart", "Configure", "Programmer", "Terminal" };
+            showTooltipForButton(idx, labels[idx]);
+        }
+    } else {
+        hoverStartMillis = 0;
+    }
+}
+ 
+void handleBootloaderFlash();
+void handleCProgFlash();
+ 
+int configurationswitch(int val) {
+    if (val == 1) return 1;
+    if (val == 2) return 2;
+    if (val == 3) return 3;
+    if (val == 4) return 4;
+    if (val == 5) return 5;
+    if (val == 6) return 6;
+    if (val == 7) return 7;
+    if (val == 8) return 8;
+    return 0;
+}
+void timeClock(String time = "", String date = "") {
+    if (time.length() == 0 &&
+        !fE && !applaunched && !shell && !emBreak && !util && !configurationPending) {
+        Serial1.println("CBTIME");
+    }
+    videodisplay.setFont(Font8x8);
+    videodisplay.setCursor(CLOCK_POS_X, CLOCK_POS_Y);
+    videodisplay.setTextColor(0, videodisplay.RGB(255,255,255));
+    videodisplay.println(time.c_str());
+ 
+    videodisplay.setFont(Font6x8);
+    videodisplay.setCursor(CLOCK_POS_X - 65, CLOCK_POS_Y + 1);
+    videodisplay.setTextColor(0, videodisplay.RGB(255,255,255));
+    videodisplay.println(date.c_str());
+}
+void controller() {
+    static String ctrlInput = "";
+    static String ctrlInput1 = "";
+    const int UTIL_COLUMNS = 5;
+ 
+    while (Serial1.available()) {
+        char c = Serial1.read();
+        if (c == '\n') {
+            if (!emBreak) {
+                if (!shell) {
+                    if (configurationPending) {
+                        ctrlInput1.trim();
+                        Serial.println(ctrlInput1);
+                        if (ctrlInput1 == "Escape") {
+                            requestElevation("Save changes and restart?", 2);
+                            fE = false;
+                            util = false;
+                            applaunched = false;
+                            configurationPending = false;
+                        }
+                        if (ctrlInput1 == "UpArrow") {
+                            if (util) { if (dragvalve > 0) dragvalve--; }
+                            else { if (dragvalve > 1) dragvalve--; }
+                        } else if (ctrlInput1 == "DownArrow") {
+                            if (util) { if (dragvalve < 18) dragvalve++; }
+                            else { if (dragvalve < 18) dragvalve++; }
+                        }
+                        if (ctrlInput1 == "Enter") {
+                            switch (configurationswitch(dragvalve)) {
+                                case 1: WallpaperToggle = !WallpaperToggle; configureMenu(1); break;
+                                case 2: TooltipsToggle = !TooltipsToggle; configureMenu(2); break;
+                                case 3: VerboseUART = !VerboseUART; configureMenu(3); break;
+                                case 4: DisplayColour = !DisplayColour; configureMenu(4); break;
+                                case 5: WifiCoreToggle = !WifiCoreToggle; configureMenu(5); break;
+                                case 6: TelemetryData = !TelemetryData; configureMenu(6); break;
+                                case 7: FastBoot = !FastBoot; configureMenu(7); break;
+                                case 8: AudioDriver = !AudioDriver; configureMenu(8); break;
+                            }
+                        }
+                        ctrlInput1 = "";
+                    }
+                    else if (fE) {
+                        ctrlInput1.trim();
+                        Serial.println(ctrlInput1);
+                        if (ctrlInput1 == "LeftArrow") {
+                            if (dragvalve > 1) dragvalve--;
+                        } else if (ctrlInput1 == "RightArrow") {
+                            if (dragvalve < 4) dragvalve++;
+                        } else if (ctrlInput1 == "Enter") {
+                            selection = true;
+                        } else if (!applaunched && ctrlInput1 == "Escape") {
+                            requestElevation("Are you sure you want to reboot to Bootstrap?", 1);
+                        } else if (applaunched && ctrlInput1 == "Escape") {
+                            fE = false; util = false; applaunched = false; configurationPending = false; home();
+                        } else if (ctrlInput1 == "RightGUI (Win) +") {
+                            ESP.restart();
+                        }
+                        ctrlInput1 = "";
+                    }
+                    else {
+                        ctrlInput1.trim();
+                        Serial.println(ctrlInput1);
+ 
+                        if (ctrlInput1 == "UpArrow") {
+                            if (util && appFileCount > 0) {
+                                int cols = UTIL_COLUMNS;
+                                int rows = (appFileCount + cols - 1) / cols;
+                                int col = dragvalve % cols;
+                                int row = dragvalve / cols;
+                                if (row > 0) row--; else row = rows - 1;
+                                int newIdx = row * cols + col;
+                                while (newIdx >= appFileCount && col > 0) { col--; newIdx = row * cols + col; }
+                                dragvalve = constrain(newIdx, 0, appFileCount - 1);
+                                handleNavigation();
+                            } else {
+                                if (dragvalve > 1) dragvalve--;
+                            }
+                        } else if (ctrlInput1 == "DownArrow") {
+                            if (util && appFileCount > 0) {
+                                int cols = UTIL_COLUMNS;
+                                int rows = (appFileCount + cols - 1) / cols;
+                                int col = dragvalve % cols;
+                                int row = dragvalve / cols;
+                                if (row < rows - 1) row++; else row = 0;
+                                int newIdx = row * cols + col;
+                                while (newIdx >= appFileCount && col > 0) { col--; newIdx = row * cols + col; }
+                                dragvalve = constrain(newIdx, 0, appFileCount - 1);
+                                handleNavigation();
+                            } else {
+                                if (dragvalve < 6) dragvalve++;
+                            }
+                        } else if (ctrlInput1 == "LeftArrow") {
+                            if (util && appFileCount > 0) {
+                                if ((dragvalve % UTIL_COLUMNS) > 0) dragvalve--;
+                                else {
+                                    // wrap to previous column in same row or wrap to end
+                                    int row = dragvalve / UTIL_COLUMNS;
+                                    int prevCol = UTIL_COLUMNS - 1;
+                                    int newIdx = row * UTIL_COLUMNS + prevCol;
+                                    while (newIdx >= appFileCount && prevCol > 0) { prevCol--; newIdx = row * UTIL_COLUMNS + prevCol; }
+                                    dragvalve = constrain(newIdx, 0, appFileCount - 1);
+                                }
+                                handleNavigation();
+                            } else {
+                                if (dragvalve > 1) dragvalve--;
+                            }
+                        } else if (ctrlInput1 == "RightArrow") {
+                            if (util && appFileCount > 0) {
+                                if ((dragvalve % UTIL_COLUMNS) < (UTIL_COLUMNS - 1)) dragvalve++;
+                                else {
+                                    int row = dragvalve / UTIL_COLUMNS;
+                                    int newIdx = row * UTIL_COLUMNS;
+                                    // ensure newIdx is valid
+                                    if (newIdx >= appFileCount) newIdx = 0;
+                                    dragvalve = constrain(newIdx, 0, appFileCount - 1);
+                                }
+                                handleNavigation();
+                            } else {
+                                if (dragvalve < 6) dragvalve++;
+                            }
+                        } else if (ctrlInput1 == "Enter") {
+                            if (!warning) {
+                                if (util) { handleSelection(); }
+                                else { selection = true; }
+                            } else { warning = false; home(); }
+                        } else if (applaunched && ctrlInput1 == "Escape") {
+                            home();
+                            util = false;
+                            applaunched = false;
+                        } else if (!applaunched && ctrlInput1 == "Escape") {
+                            requestElevation("Return to Bootstrap?", 1);
+                        } else if (ctrlInput1 == "RightGUI (Win) +") {
+                            ESP.restart();
+                        } else if (ctrlInput1 == "BL1X") {
+                            Serial.println("BTE Connection Established");
+                            Serial.println("Handshake Successful");
+                        } else if (ctrlInput1.startsWith("CBTIME ") && !FastBoot) {
+                            String time = ctrlInput1.substring(18, 26);
+                            String date = ctrlInput1.substring(7, 17);
+                            timeClock(time, date);
+                        }
+                        ctrlInput1 = "";
+                    }
+                } else {
+                    // shell mode (unchanged)
+                    ctrlInput1.trim();
+                    String shellNotif = "From Shell MSG: " + ctrlInput1;
+                    Serial.println(shellNotif);
+                    bool isValid = true;
+                    if (ctrlInput1 == "Enter") {
+                        execute(executable);
+                        ctrlInput1 = "";
+                        executable = "";
+                        buildShell(ctrlInput1);
+                        return;
+                    }
+                    if (ctrlInput1 == "UpArrow") { ctrlInput1.replace("UpArrow", ""); ctrlInput1 = ""; consoleScrollUp(); }
+                    else if (ctrlInput1 == "DownArrow") { ctrlInput1.replace("DownArrow", ""); ctrlInput1 = ""; consoleScrollDown(); }
+                    if (ctrlInput1.indexOf("Space") != -1) { buildShell(" "); ctrlInput1 = ""; isValid = false; break; }
+                    if (ctrlInput1.indexOf("Backspace") != -1) { ctrlInput1 = ""; executable = ""; buildShell(ctrlInput1); isValid = false; break; }
+                    if (ctrlInput1.indexOf("Escape") != -1) { executable = ""; ctrlInput1 = ""; shell = false; home(); break; }
+                    if (ctrlInput1.indexOf("rlsd") != -1) { ctrlInput1.replace("rlsd", ""); ctrlInput1 = ""; break; }
+ 
+                    for (int i = 0; i < ctrlInput1.length(); i++) {
+                        char cc = ctrlInput1[i];
+                        if (!isalnum(cc)) { isValid = false; ctrlInput1 = ""; break; }
+                    }
+                    if (isValid) { buildShell(ctrlInput1); ctrlInput1 = ""; }
+                    ctrlInput1 = "";
+                }
+            } else {
+                // emBreak input handling (unchanged)
+                ctrlInput1.trim();
+                String low = ctrlInput1;
+                low.toLowerCase();
+                Serial.println(low);
+ 
+                if (low == "escape") {
+                    emBreak = false;
+                    home();
+                } else if (low == "y") {
+                    if (emBreakAction == 1) {
+                        boolRes = "trueBootloader";
+                        boolUpdate();
+                        ESP.restart();
+                    } else if (emBreakAction == 2) {
+                        writeSystemConfigToSPIFFS();
+                        File flag = SPIFFS.open("/pending_conf.flag", FILE_WRITE);
+                        if (flag) { flag.print("1"); flag.close(); }
+                        boolRes = "false";
+                        boolUpdate();
+                        ESP.restart();
+                    } else {
+                        emBreak = false; home();
+                    }
+                } else if (low == "n") {
+                    if (emBreakAction == 2) {
+                        readSystemConfigFromSPIFFS();
+                        configurationPending = false; applaunched = false; emBreak = false; home();
+                    } else {
+                        emBreak = false; home();
+                    }
+                }
+                ctrlInput1 = "";
+            }
+        } else {
+            // accumulate characters
+            ctrlInput1 += c;
+        }
+    }
+}
+ 
+String generateRandomString(int length) {
+    const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    String result = "";
+ 
+    for (int i = 0; i < length; i++) {
+        int index = random(0, sizeof(charset) - 1);
+        result += charset[index];
+    }
+ 
+    return result;
+}
+void storeInstructions(String writeF) {
+    File file = SPIFFS.open("/instructions.cins", FILE_WRITE);
+    if (file) {
+        file.print(writeF);
+        file.close();
+    } else {
+        Serial.println("Failed to open file for writing.");
+    }
+    ESP.restart();
+}
+ 
+void readInstructions() {
+    File file = SPIFFS.open("/instructions.cins", FILE_READ);
+    if (file) {
+        String a = file.readStringUntil('\n');
+        Serial.println(a);
+        if (a.startsWith("mkdir")) {
+            Serial.println("DIR Creation " + a);
+            SD.mkdir(String("/" + a.substring(6)));
+        } else if (a.startsWith("mkfile")){
+            Serial.println("FILE Creation " + a);
+            File file = SD.open(String("/UserData/" + a.substring(6) +".cins"), FILE_WRITE);
+        }
+        file.close();
+    } else {
+        Serial.println("Failed to open file for reading.");
+    }
+}
+ 
+void processSelection() {
+  if (selection) {
+    selection = false;
+    if (!applaunched && !fE){
+        switch (dragvalve) {
+        case 1: Serial.println("Loading DiskDrum");utilitiesMenu();  break;
+        case 2: Serial.println("Loading DiskDrum");fileExplorer(); break;
+        case 3: Serial1.println("VDCLoadNSS");boolRes = "trueBootloader";boolUpdate();ESP.restart(); break;
+        case 4: Serial.println("Configure System");configureMenu(); break;
+        case 5: Serial1.println("VDCLoadNSS");boolRes = "trueCprog";boolUpdate();ESP.restart(); break;
+        case 6: CitCommandPPT(); break;
+      }
+    } else {
+        switch (dragvalve) {
+            case 1: {
+                Serial.println("mkdir");
+                String rnStr = generateRandomString(5);
+                storeInstructions("mkdir " + rnStr);
+                break;
+            }
+            case 2: {
+                Serial.println("mkfile");
+                String rnStr1 = generateRandomString(5);
+                storeInstructions("mkfile " + rnStr1);
+                break;
+            }
+            case 3:
+                Serial.println("delete");
+                break;
+            case 4:
+                Serial.println("format");
+                break;
+            default:
+                Serial.println("Unknown selection");
+                break;
+        }
+    }
+  }
+}
+void updateDisplay() {
+    processHoverAndTooltip();
+    auto restoreWallpaperRect = [&](int x, int y, int w, int h) {
+        if (!SPIFFS.exists(WALLPAPER_SPIFFS_PATH)) return;
+        int rx = max(0, x - 1);
+        int ry = max(0, y - 1);
+        int rw = w + 2;
+        int rh = h + 2;
+        if (rx + rw > WALLPAPER_W) rw = WALLPAPER_W - rx;
+        if (ry + rh > WALLPAPER_H) rh = WALLPAPER_H - ry;
+        if (rw > 0 && rh > 0) {
+            renderBMPRegionFromSPIFFS(WALLPAPER_SPIFFS_PATH, rx, ry, rw, rh, WALLPAPER_W, WALLPAPER_H);
+        }
+    };
+ 
+    if (configurationPending){
+        if (dragvalve != previousDragValve) {
+            if((dragvalve-1) < 9 ){
+                videodisplay.fillRect(68, 65, 10, 180, videodisplay.RGB(0,0,0));
+                videodisplay.fillRect(182, 65, 10, 180, videodisplay.RGB(0,0,0));
+                videodisplay.fillRect(314, 65, 10, 180, videodisplay.RGB(0,0,0));
+                videodisplay.fillRect(200, 65, 10, 180, videodisplay.RGB(0,0,0));
+                previousDragValve = dragvalve;
+                int yOffset = 69 + (dragvalve - 1) * 19;
+                videodisplay.fillRect(182, yOffset, 10, 15, videodisplay.RGB(255,255,255));
+                videodisplay.fillRect(68, yOffset, 10, 15, videodisplay.RGB(255,255,255));  
+            } else {
+            videodisplay.fillRect(68, 65, 10, 180, videodisplay.RGB(0,0,0));
+            videodisplay.fillRect(182, 65, 10, 180, videodisplay.RGB(0,0,0));
+            videodisplay.fillRect(314, 65, 10, 180, videodisplay.RGB(0,0,0));
+            videodisplay.fillRect(200, 65, 10, 180, videodisplay.RGB(0,0,0));
+            previousDragValve = dragvalve;
+            int yOffset = 69 + (dragvalve - 10) * 19;
+            videodisplay.fillRect(200, yOffset, 10, 15, videodisplay.RGB(255,255,255));
+            videodisplay.fillRect(314, yOffset, 10, 15, videodisplay.RGB(255,255,255));  
+            }
+        } 
+    }
+ 
+    if (!util) {
+        if (fE) {
+            if (dragvalve != previousDragValve) {
+                videodisplay.fillRect(70, 255, 255, 2, 0);
+                restoreWallpaperRect(70, 255, 255, 2);
+                previousDragValve = dragvalve;
+                int xOffset = 70 + (dragvalve - 1) * 55;
+                videodisplay.fillRect(xOffset, 255, 50, 2, videodisplay.RGB(255,255,255));
+            }
+        } else {
+            if (dragvalve != previousDragValve) {
+                if (tooltipShown) hideTooltip();
+                videodisplay.fillRect(11, 18, 2, 170, 0);
+                videodisplay.fillRect(37, 18, 2, 170, 0);
+                restoreWallpaperRect(11, 18, 2, 170);
+                restoreWallpaperRect(37, 18, 2, 170);
+ 
+                previousDragValve = dragvalve;
+                int yOffset = 18 + (dragvalve - 1) * 30;
+                videodisplay.fillRect(11, yOffset, 2, 20, videodisplay.RGB(255,255,255));
+                videodisplay.fillRect(37, yOffset, 2, 20, videodisplay.RGB(255,255,255));
+            }
+        }
+ 
+    }
+}
+int getBoolResCode(String value) {
+    if (value == "false") return 0;
+    if (value == "trueKernel") return 1;
+    if (value == "trueBootloader") return 2;
+    if (value == "trueWifiFlash") return 3;
+    if (value == "trueCprog") return 4;
+    if (value.startsWith("/apps")) return 5;
+    if (value == "fsd") return 6;
+    if (value == "pendingConfiguration") return 7;
+    return -1;
+}
+ 
+void setup() {
+    Serial.begin(115200);
+    Serial1.begin(256000, SERIAL_8N1, 16, 17);
+    SPI.begin(18,19,23,5);
+    lastTimeClockMs = millis();
+ 
+    if(!SD.begin(5)){
+      Serial.println("SD Failed to init");
+      warning = true;
+    } else {
+      Serial.println("EUREKA");
+      cardSize = SD.cardSize();
+      usedBytes = SD.usedBytes();
+      freeBytes = cardSize - usedBytes;
+      Serial.println(String(cardSize + usedBytes + freeBytes));
+    }
+    freeSketch = ESP.getFlashChipSize();
+    if (!SPIFFS.begin(true)) {
+        Serial.println("SPIFFS Mount Failed");
+        SPIFFS.format();
+        if (!SPIFFS.begin(true)) {
+            Serial.println("SPIFFS Mount Failed Again");
+            return;
+        }
+    }
+    if (SPIFFS.exists("/pending_conf.flag")) {
+        Serial.println("pending_conf.flag found — copying systemConfiguration.conf from SPIFFS to SD...");
+        if (!SD.begin(5)) {
+            Serial.println("SD not available: cannot copy configuration now.");
+        } else {
+            if (!SD.exists("/UserData")) SD.mkdir("/UserData");
+            if (!SD.exists("/UserData/Configurations")) SD.mkdir("/UserData/Configurations");
+            bool ok = copyFileSPIFFSToSD("/systemConfiguration.conf", "/UserData/Configurations/systemConfiguration.conf");
+            if (ok) {
+                Serial.println("Configuration copied to SD successfully. Removing flag and rebooting...");
+                SPIFFS.remove("/pending_conf.flag");
+                ESP.restart();
+            } else {
+                Serial.println("Failed to copy configuration to SD. Marker left for retry on next boot.");
+            }
+        }
+    }
+    readSystemConfigFromSPIFFS();
+    String booleanConfig;
+    booleanConfig.reserve(200);
+ 
+    booleanConfig += "WallpaperToggle="; booleanConfig += (WallpaperToggle ? "true" : "false"); booleanConfig += "\n";
+    booleanConfig += "TooltipsToggle=";  booleanConfig += (TooltipsToggle ? "true" : "false"); booleanConfig += "\n";
+    booleanConfig += "VerboseUART=";      booleanConfig += (VerboseUART ? "true" : "false"); booleanConfig += "\n";
+    booleanConfig += "DisplayColour=";    booleanConfig += (DisplayColour ? "true" : "false"); booleanConfig += "\n";
+    booleanConfig += "WifiCoreToggle=";   booleanConfig += (WifiCoreToggle ? "true" : "false"); booleanConfig += "\n";
+    booleanConfig += "TelemetryData=";    booleanConfig += (TelemetryData ? "true" : "false"); booleanConfig += "\n";
+    booleanConfig += "FastBoot=";         booleanConfig += (FastBoot ? "true" : "false"); booleanConfig += "\n";
+    booleanConfig += "AudioDriver=";      booleanConfig += (AudioDriver ? "true" : "false");
+ 
+    Serial.print(booleanConfig);
+ 
+    if(AudioDriver){
+        pinMode(SPEAKER_PIN, 0);
+        tone(SPEAKER_PIN, 1000);
+    }
+    if(!FastBoot){
+        readInstructions();
+        saveFNBuffer();
+        copyAppIconsFromSDToSPIFFS(); 
+    }
+    boolTru();
+    boolRes.trim();
+    Serial.println("boolRes: " + boolRes);
+    if (boolRes == ""){
+        boolRes = "false";
+        boolUpdate();
+    }
+    switch (getBoolResCode(boolRes)) {
+        case 0:
+            if (SD.exists(WALLPAPER_SD_PATH)) {
+                if (SPIFFS.exists(WALLPAPER_SPIFFS_PATH) && filesMatchSDvsSPIFFS(WALLPAPER_SD_PATH, WALLPAPER_SPIFFS_PATH)) {
+                    Serial.println("Wallpaper in SPIFFS is up-to-date. Skipping copy.");
+                } else {
+                    Serial.println("Found wallpaper on SD — copying to SPIFFS...");
+                    if (!copyFileSDToSPIFFS(WALLPAPER_SD_PATH, WALLPAPER_SPIFFS_PATH)) {
+                        Serial.println("Wallpaper copy failed or not present.");
+                    }
+                }
+            }
+            if (!warning && !FastBoot) {
+                copyIconsFromSDToSPIFFSAndReadHeaders();
+            } else {
+                for (int i = 0; i < ICON_COUNT; ++i) {
+                    if(!FastBoot){
+                        readIconHeaderFromSPIFFS(i);
+                    }
+                }
+            }
+            SD.end();
+            Serial1.println("res");
+ 
+            videodisplay.init(CompMode::MODEPALColor288Pmid, 25, true);
+            tone(SPEAKER_PIN, 0);
+            initVd = true;
+            kernelFunction();
+            break;
+        case 1: // "trueKernel"
+            tone(SPEAKER_PIN, 0);
+            boolRes = "false";
+            boolUpdate();
+            break;
+        case 2: // "trueBootloader"
+            tone(SPEAKER_PIN, 0);
+            appString = "/System/bootloader.bin";
+            cleanFlashPartitions();
+            handleBootloaderFlash();
+            break;
+        case 3: // "trueWifiEditor"
+            tone(SPEAKER_PIN, 0);
+            appString = "/System/WifiEditor.bin";
+            cleanFlashPartitions();
+            handleBootloaderFlash();
+            break;
+        case 4: // "trueCprog"
+            tone(SPEAKER_PIN, 0);
+            appString = "/apps/CProg.bin";
+            cleanFlashPartitions();
+            handleCProgFlash();
+            break;
+        case 5: // "trueAPPFlash"
+            tone(SPEAKER_PIN, 0);
+            appString = boolRes;
+            cleanFlashPartitions();
+            flashApp();
+            break;
+        case 7: // "pendingConfiguration"
+            tone(SPEAKER_PIN, 0);
+            Serial.println("Saving Configuration and Restarting.");
+            boolRes = "false";
+            boolUpdate();
+            ESP.restart();
+            break;
+    }
+}
+ 
+void loop() {
+    controller();
+    processSelection();
+    updateDisplay();
+    unsigned long now = millis();
+    if (now - lastTimeClockMs >= TIME_INTERVAL_MS) {
+        unsigned long ticks = (now - lastTimeClockMs) / TIME_INTERVAL_MS;
+        lastTimeClockMs += ticks * TIME_INTERVAL_MS;
+        timeClock();
+    }
+}
+ 
+void visualheap() {
+  if (startup == false) {
+    int heap = ESP.getFreeHeap();
+    int startX = 255+65;
+    float heapKB = heap / 1024.0;
+ 
+    videodisplay.setTextColor(videodisplay.RGB(255,255,255), videodisplay.RGB(190,190,190));
+ 
+    videodisplay.circle(startX-10 , 23, 5, videodisplay.RGB(255,255,255));
+    videodisplay.circle(startX-10 , 47, 5, videodisplay.RGB(255,255,255));
+    videodisplay.fillCircle(startX-10 , 71, 5, videodisplay.RGB(255,255,255));
+    videodisplay.fillCircle(startX-10 , 95, 5, videodisplay.RGB(255,255,255));
+ 
+    videodisplay.setFont(Font6x8);
+    videodisplay.setCursor(startX, 18);
+ 
+    videodisplay.println("HeapRAM");
+    String heapStr = String(heapKB, 2) + "KB";
+    videodisplay.println(heapStr.c_str());
+    videodisplay.println();
+ 
+    videodisplay.println("Total SD");
+    String TSDStr = String((double)cardSize / (1024.0 * 1024.0 * 1024.0), 2) + "GB";
+    videodisplay.println(TSDStr.c_str());
+    videodisplay.println();
+ 
+    videodisplay.println("Free SD");
+    String FoSDStr = String((double)freeBytes / (1024.0 * 1024.0 * 1024.0), 2) + "GB";
+    videodisplay.println(FoSDStr.c_str());
+    videodisplay.println();
+ 
+    videodisplay.println("HeapROM");
+    String SSStr = String((double)freeSketch / (1024.0 * 1024.0), 2) + "MB";
+    videodisplay.println(SSStr.c_str());
+    videodisplay.println();
+ 
+    int cx1 = 255 + 60;
+    int cy1 = 120;
+    int radius1 = 10;
+ 
+    float heapUsage = 1.0 - (heapKB / 320);
+    int endAngle1 = heapUsage * 360;
+    videodisplay.setCursor(cx1 + 15,cy1-7);
+    videodisplay.println("RAM");
+    videodisplay.println("USAGE");
+    videodisplay.circle(cx1, cy1, radius1, videodisplay.RGB(255, 255, 255));
+    for (int angle = 0; angle <= endAngle1; angle += 4) {
+        float rad = angle * 3.1415926 / 180.0;
+        int x = cx1 + cos(rad) * radius1;
+        int y = cy1 + sin(rad) * radius1;
+        videodisplay.line(cx1, cy1, x, y, videodisplay.RGB(255, 255, 255));
+    }
+    videodisplay.fillCircle(cx1, cy1, radius1 / 2, 0);
+    drawLambda(cx1, cy1 + 28, 0.5f, videodisplay.RGB(255,255,255), 0);
+    videodisplay.setCursor(cx1+15, cy1 + 21);
+    videodisplay.println("CORE:\nLAMBDA");
+ 
+  } else {
+    return;
+  }
+}
