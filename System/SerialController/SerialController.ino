@@ -795,11 +795,10 @@ static String formatEpochForCBTIME(uint32_t epoch) {
 static String controllerTimeString() {
   uint32_t manualEpoch = currentManualClockEpoch();
   if (manualEpoch > 0) return formatEpochForCBTIME(manualEpoch);
-#if ENABLE_NETWORK_FEATURES
-  return getCurrentTimeString("%Y-%m-%d %H:%M:%S");
-#else
+  // CBTIME is requested during boot; never block the command loop or pause BLE for NTP.
+  time_t systemEpoch = time(nullptr);
+  if (systemEpoch >= 1600000000) return formatEpochForCBTIME((uint32_t)systemEpoch);
   return String("2000-01-01 00:00:00");
-#endif
 }
 
 static bool handleControllerTimeCommand(const String &command, bool fromSerial1) {
