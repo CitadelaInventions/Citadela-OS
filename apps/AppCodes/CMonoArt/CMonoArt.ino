@@ -1,7 +1,5 @@
 #include <Arduino.h>
 #include <ESP32Video.h>
-#include <Ressources/Font8x8.h>
-#include <Ressources/Font6x8.h>
 #include <SD.h>
 #include <SPI.h>
 #include <SPIFFS.h>
@@ -10,12 +8,21 @@
 #include "../../../System/Libraries/CitadelaDisplay.h"
 #include "../../../System/Libraries/CitadelaSerialCommands.h"
 #include "../../../System/Libraries/CitadelaStorage.h"
+#include "fonts/InterMono.h"
+#include "CMonoArt3D.h"
 
-static constexpr int WIDTH = 940;
+static constexpr int WIDTH = 1645;
 static constexpr int HEIGHT = 288;
 static constexpr int VIDEO_PIN = 25;
 static constexpr int MAX_ITERATIONS = 72;
 static constexpr const char *BOOT_STATE_PATH = "/evil.txt";
+static constexpr int TOP_BAR = 30;
+static constexpr int FOOTER_TOP = HEIGHT - 35;
+
+enum Scene : uint8_t { FRACTAL, LETTERING, ETCHING, KNOT, SCENE_COUNT };
+static const char *const SCENE_NAMES[] = {
+    "FRACTAL CONTOURS", "TYPE SPECIMEN", "MICRO ETCHING", "TREFOIL KNOT 3D"
+};
 
 static Citadela::CitCompositeColorDAC video;
 static Citadela::LineReader controllerInput(128);
@@ -28,6 +35,15 @@ static float centerImaginary = 0.0f;
 static float viewHeight = 2.35f;
 static int nextRow = 0;
 static uint32_t renderStarted = 0;
+static Scene scene = FRACTAL;
+static bool frameComplete = false;
+static float objectYaw = 0.45f;
+static float objectPitch = -0.25f;
+static float objectZoom = 1.0f;
+static int16_t farRidge[WIDTH];
+static int16_t nearRidge[WIDTH];
+static int16_t cloudLineA[WIDTH];
+static int16_t cloudLineB[WIDTH];
 
 static bool writeBootState(const char *state) {
     if (!spiffsReady) return false;
@@ -118,32 +134,70 @@ static void returnToKernel() {
     ESP.restart();
 }
 
+static void strokeLine(int x0, int y0, int x1, int y1, bool white = true,
+                       int weight = 1) {
+    const int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    const int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    int error = dx + dy;
+    for (;;) {
+        video.mono1Pixel(x0, y0, white);
+        if (weight > 1) video.mono1Pixel(x0 + 1, y0, white);
+        if (x0 == x1 && y0 == y1) break;
+        const int e2 = 2 * error;
+        if (e2 >= dy) { error += dy; x0 += sx; }
+        if (e2 <= dx) { error += dx; y0 += sy; }
+    }
+}
+
+static void prepareRidges() {
+    for (int x = 0; x < WIDTH; ++x) {
+        const float u = (float)x / WIDTH;
+        farRidge[x] = (int16_t)(120 + 17 * sinf(u * 17.3f) +
+            9 * sinf(u * 51.7f) + 4 * sinf(u * 127.0f));
+        nearRidge[x] = (int16_t)(175 + 19 * sinf(u * 14.1f + 1.7f) +
+            8 * sinf(u * 43.0f) + 3 * sinf(u * 123.0f));
+        cloudLineA[x] = (int16_t)(66 + 8 * sinf(u * 16.1f));
+        cloudLineB[x] = (int16_t)(94 + 5 * sinf(u * 31.0f + 1.8f));
+    }
+}
+
 static void beginRender() {
     if (!videoReady) return;
     video.mono1Clear(false);
     nextRow = 0;
     renderStarted = millis();
+    frameComplete = false;
+    if (scene == ETCHING) prepareRidges();
+    Serial.printf("MONO MODE %u %s\n", (unsigned)scene, SCENE_NAMES[scene]);
 }
 
-static void renderRow(int y) {
+static void renderMandelbrotRow(int y) {
     uint8_t *row = video.mono1Row(y);
     if (!row) return;
     const float imaginary = centerImaginary +
         ((float)y + 0.5f - HEIGHT * 0.5f) * viewHeight / HEIGHT;
     const float step = viewHeight * (4.0f / 3.0f) / WIDTH;
     float real = centerReal - step * (WIDTH * 0.5f - 0.5f);
+    const float imaginarySquared = imaginary * imaginary;
     for (int byte = 0; byte < video.mono1Stride(); ++byte) {
         uint8_t packed = 0;
         for (int bit = 0; bit < 8; ++bit) {
             int x = byte * 8 + bit;
             if (x >= WIDTH) break;
             float zr = 0.0f, zi = 0.0f;
-            int iterations = 0;
-            while (iterations < MAX_ITERATIONS && zr * zr + zi * zi < 64.0f) {
-                float nextReal = zr * zr - zi * zi + real;
-                zi = 2.0f * zr * zi + imaginary;
-                zr = nextReal;
-                ++iterations;
+            int iterations = MAX_ITERATIONS;
+            const float bulbReal = real + 1.0f;
+            const float cardioidReal = real - 0.25f;
+            const float q = cardioidReal * cardioidReal + imaginarySquared;
+            if (bulbReal * bulbReal + imaginarySquared > 0.0625f &&
+                q * (q + cardioidReal) > 0.25f * imaginarySquared) {
+                iterations = 0;
+                while (iterations < MAX_ITERATIONS && zr * zr + zi * zi < 64.0f) {
+                    const float nextReal = zr * zr - zi * zi + real;
+                    zi = 2.0f * zr * zi + imaginary;
+                    zr = nextReal;
+                    ++iterations;
+                }
             }
             // Alternating escape bands give fine black-and-white contours.
             if (iterations < MAX_ITERATIONS && (iterations % 6) < 3)
@@ -154,55 +208,267 @@ static void renderRow(int y) {
     }
 }
 
-static void drawScaledText(int x, int y, const char *message, const Font &font,
-                           int scaleX, int scaleY) {
-    for (const char *ch = message; *ch; ++ch) {
-        if (font.valid(*ch)) {
-            const uint8_t *pixels = font.pixels +
-                (int)(*ch - font.firstChar) * font.charWidth * font.charHeight;
-            for (int row = 0; row < font.charHeight; ++row)
-                for (int column = 0; column < font.charWidth; ++column)
-                    if (pixels[row * font.charWidth + column])
-                        video.mono1FillRect(x + column * scaleX, y + row * scaleY,
-                                            scaleX, scaleY, true);
+static uint32_t pixelHash(uint32_t x, uint32_t y) {
+    uint32_t v = x * 0x9E3779B1U + y * 0x85EBCA77U + 0xC2B2AE3DU;
+    v ^= v >> 16;
+    v *= 0x7FEB352DU;
+    return v ^ (v >> 15);
+}
+
+static void renderEtchingRow(int y) {
+    uint8_t *row = video.mono1Row(y);
+    if (!row) return;
+    const int moonX = WIDTH * 76 / 100;
+    const int moonY = 78;
+    const int moonRadius = 39;
+    for (int byte = 0; byte < video.mono1Stride(); ++byte) {
+        uint8_t packed = 0;
+        for (int bit = 0; bit < 8; ++bit) {
+            const int x = byte * 8 + bit;
+            if (x >= WIDTH) break;
+            const uint32_t noise = pixelHash((uint32_t)x, (uint32_t)y);
+            bool black = false;
+            const int dx = x - moonX, dy = y - moonY;
+            const int moonDistance = dx * dx + dy * dy;
+            if (moonDistance < moonRadius * moonRadius) {
+                black = moonDistance > (moonRadius - 2) * (moonRadius - 2) ||
+                    ((noise & 127U) < 2 && moonDistance < 980);
+            } else if (y < farRidge[x]) {
+                // Hairline cloud contours and sparse sky stipple.
+                black = ((x < WIDTH * 58 / 100 && y == cloudLineA[x]) ||
+                         (x > WIDTH * 30 / 100 && y == cloudLineB[x])) &&
+                        ((noise & 15U) != 0);
+                if ((noise & 8191U) == 7U) black = true;
+            } else if (y < nearRidge[x]) {
+                // Two engraving frequencies keep distant peaks legible.
+                const int depth = y - farRidge[x];
+                black = depth < 2 ||
+                    (((x + 3 * y) % 11) < (depth > 20 ? 3 : 2)) ||
+                    ((noise & 31U) == 0U);
+            } else {
+                const int depth = y - nearRidge[x];
+                if (y < 230) {
+                    black = depth < 2 ||
+                        (((x - 2 * y) % 17 + 17) % 17 < (depth > 25 ? 5 : 3)) ||
+                        ((noise & 15U) == 0U);
+                } else {
+                    // Water reflection: irregular one-pixel horizontal cuts.
+                    black = ((y & 3) == 0 && (noise & 15U) < 11U) ||
+                        ((noise & 31U) == 0U && y < 255);
+                }
+            }
+            if (!black) packed |= (uint8_t)(0x80U >> bit);
         }
-        x += font.charWidth * scaleX;
+        row[byte] = packed;
     }
 }
 
-static void drawCaption() {
-    video.mono1FillRect(0, 0, WIDTH, 30, false);
-    video.mono1FillRect(0, 30, WIDTH, 1, true);
-    video.mono1FillRect(0, 265, WIDTH, 1, true);
-    video.mono1FillRect(0, 266, WIDTH, 22, false);
-    drawScaledText(16, 7, "CITADELA  /  ONE-BIT MANDELBROT CONTOURS",
-                   Font8x8, 2, 2);
-    drawScaledText(16, 270,
-                   "940 x 288  |  ARROWS PAN  |  +/- ZOOM  |  R RESET  |  ESC EXIT",
-                   Font6x8, 2, 2);
+static void outlineRect(int x, int y, int w, int h) {
+    strokeLine(x, y, x + w - 1, y, false);
+    strokeLine(x, y + h - 1, x + w - 1, y + h - 1, false);
+    strokeLine(x, y, x, y + h - 1, false);
+    strokeLine(x + w - 1, y, x + w - 1, y + h - 1, false);
 }
 
-static void handleInput(String line) {
+static void drawObservatory() {
+    const int wingLeft = WIDTH * 24 / 100;
+    const int wingRight = WIDTH * 76 / 100;
+    const int mainLeft = WIDTH * 35 / 100;
+    const int mainRight = WIDTH * 65 / 100;
+    const int center = WIDTH / 2;
+    video.mono1FillRect(wingLeft, 200, wingRight - wingLeft, 46, true);
+    outlineRect(wingLeft, 200, wingRight - wingLeft, 46);
+    video.mono1FillRect(mainLeft, 170, mainRight - mainLeft, 76, true);
+    outlineRect(mainLeft, 170, mainRight - mainLeft, 76);
+    strokeLine(mainLeft - 8, 169, center, 153, false);
+    strokeLine(center, 153, mainRight + 8, 169, false);
+    strokeLine(mainLeft - 8, 169, mainRight + 8, 169, false);
+    for (int x = mainLeft + 9; x < mainRight - 6; x += max(8, WIDTH / 43)) {
+        strokeLine(x, 172, x, 243, false);
+        strokeLine(x + 2, 172, x + 2, 243, false);
+    }
+    strokeLine(wingLeft + 4, 208, wingRight - 4, 208, false);
+    strokeLine(wingLeft + 4, 235, wingRight - 4, 235, false);
+    for (int x = wingLeft + 10; x < wingRight - 10; x += max(12, WIDTH / 34)) {
+        outlineRect(x, 213, 8, 17);
+        strokeLine(x + 4, 213, x + 4, 229, false);
+        strokeLine(x, 221, x + 7, 221, false);
+    }
+    // One-pixel masonry joints under the columns.
+    for (int y = 237; y < 246; y += 4)
+        for (int x = wingLeft + 2 + ((y & 4) ? 7 : 0);
+             x < wingRight - 3; x += 18)
+            strokeLine(x, y, x + 9, y, false);
+
+    const int domeRadiusX = max(28, WIDTH * 7 / 100);
+    const int domeRadiusY = 30;
+    for (int dx = -domeRadiusX; dx <= domeRadiusX; ++dx) {
+        const float fraction = (float)dx / domeRadiusX;
+        const int top = 161 - (int)(domeRadiusY *
+            sqrtf(max(0.0f, 1.0f - fraction * fraction)));
+        video.mono1FillRect(center + dx, top, 1, 161 - top, true);
+        video.mono1Pixel(center + dx, top, false);
+        if ((dx + domeRadiusX) % max(5, WIDTH / 140) == 0)
+            video.mono1Pixel(center + dx, top + 3, false);
+    }
+    strokeLine(center - domeRadiusX - 4, 161, center + domeRadiusX + 4,
+               161, false, 2);
+    strokeLine(center, 132, center, 115, false);
+    strokeLine(center - 9, 123, center + 9, 123, false);
+    for (int side = -1; side <= 1; side += 2) {
+        const int towerX = center + side * WIDTH * 23 / 100;
+        video.mono1FillRect(towerX - 18, 164, 36, 80, true);
+        outlineRect(towerX - 18, 164, 36, 80);
+        strokeLine(towerX - 23, 164, towerX, 147, false);
+        strokeLine(towerX, 147, towerX + 23, 164, false);
+        outlineRect(towerX - 5, 178, 10, 22);
+        strokeLine(towerX - 5, 188, towerX + 4, 188, false);
+        for (int y = 209; y < 239; y += 8)
+            strokeLine(towerX - 12, y, towerX + 11, y, false);
+    }
+    // Dense etched conifers frame the architecture without a bitmap asset.
+    for (int i = 0; i < 25; ++i) {
+        const int left = i < 13;
+        const int local = left ? i : i - 13;
+        const int x = left ? WIDTH * (4 + 15 * local / 13) / 100
+                           : WIDTH * (80 + 17 * local / 12) / 100;
+        const int base = 220 + (int)(pixelHash(i, 19) % 26U);
+        const int height = 20 + (int)(pixelHash(i, 83) % 34U);
+        strokeLine(x, base, x, base - height, false);
+        for (int branch = 5; branch < height; branch += 5) {
+            const int spread = (height - branch) / 3 + 2;
+            strokeLine(x, base - branch, x - spread, base - branch + 8, false);
+            strokeLine(x, base - branch, x + spread, base - branch + 8, false);
+        }
+    }
+}
+
+static void drawLettering() {
+    video.mono1FillRect(0, TOP_BAR, WIDTH, FOOTER_TOP - TOP_BAR, true);
+    CMonoFont::draw(video, 26, 68, "ABCDEFGHIJKLM",
+                    CMonoFont::Large, false, 1, 4);
+    CMonoFont::draw(video, 26, 109, "NOPQRSTUVWXYZ",
+                    CMonoFont::Large, false, 1, 4);
+    CMonoFont::draw(video, 26, 151, "abcdefghijklm",
+                    CMonoFont::Large, false, 6, 4);
+    CMonoFont::draw(video, 26, 193, "nopqrstuvwxyz",
+                    CMonoFont::Large, false, 5, 4);
+    CMonoFont::draw(video, 26, 244, "0123456789",
+                    CMonoFont::Large, false, 6, 4);
+}
+
+static void drawCaption() {
+    video.mono1FillRect(0, 0, WIDTH, TOP_BAR, false);
+    video.mono1FillRect(0, TOP_BAR - 1, WIDTH, 1, true);
+    video.mono1FillRect(0, FOOTER_TOP, WIDTH, 1, true);
+    video.mono1FillRect(0, FOOTER_TOP + 1, WIDTH,
+                        HEIGHT - FOOTER_TOP - 1, false);
+    CMonoFont::draw(video, 20, 23, "CITADELA",
+                    CMonoFont::Small, true, 1, 3);
+    char sceneLabel[48];
+    snprintf(sceneLabel, sizeof(sceneLabel), "%s  /  %02u",
+             SCENE_NAMES[scene], (unsigned)scene + 1);
+    const int sceneWidth = CMonoFont::measure(sceneLabel, CMonoFont::Small, 1, 3);
+    CMonoFont::draw(video, WIDTH - 20 - sceneWidth, 23, sceneLabel,
+                    CMonoFont::Small, true, 1, 3);
+    const char *hint = scene == FRACTAL ?
+        "TAB MODE   ARROWS PAN   +/- ZOOM" :
+        scene == KNOT ?
+        "TAB MODE   ROTATE   +/- ZOOM   ESC" :
+        "TAB MODE   ESC EXIT   1 BIT/PIXEL";
+    CMonoFont::draw(video, 20, HEIGHT - 9, hint,
+                    CMonoFont::Small, true, 1, 3);
+}
+
+static void reportFrame() {
+    uint32_t crc = 0xFFFFFFFFU;
+    uint32_t whitePixels = 0;
+    const int stride = video.mono1Stride();
+    for (int y = 0; y < HEIGHT; ++y) {
+        const uint8_t *row = video.mono1Row(y);
+        for (int byte = 0; byte < stride; ++byte) {
+            const uint8_t value = row[byte];
+            whitePixels += __builtin_popcount((unsigned)value);
+            crc ^= value;
+            for (int bit = 0; bit < 8; ++bit)
+                crc = (crc >> 1) ^ ((crc & 1U) ? 0xEDB88320U : 0U);
+        }
+    }
+    frameComplete = true;
+    Serial.printf("MONO FRAME mode=%u name=%s complete in %lu ms crc32=%08lX white=%lu\n",
+        (unsigned)scene, SCENE_NAMES[scene],
+        (unsigned long)(millis() - renderStarted),
+        (unsigned long)(crc ^ 0xFFFFFFFFU), (unsigned long)whitePixels);
+}
+
+static void dumpFrame() {
+    if (!frameComplete) {
+        Serial.println("MONO DUMP WAIT: frame incomplete");
+        return;
+    }
+    const int stride = video.mono1Stride();
+    const int bytes = stride * HEIGHT;
+    Serial.printf("MONO DUMP START %d %d %d %d\n", WIDTH, HEIGHT, stride, bytes);
+    for (int y = 0; y < HEIGHT; ++y)
+        Serial.write(video.mono1Row(y), stride);
+    Serial.print("\nMONO DUMP END\n");
+    Serial.flush();
+}
+
+static void handleInput(String line, bool fromUSB) {
     line.trim();
     if (line == "Escape" || line == "esc") { returnToKernel(); return; }
     if (!videoReady) return;
+    if (line == "MONO INFO") {
+        Serial.printf("MONO 1BIT %dx%d stride=%d frame=%d mode=%u name=%s free=%u DMA=%u isrMax=%lu budget=%lu over=%lu lines=%lu\n",
+            video.xres, video.yres, video.mono1Stride(),
+            video.mono1Stride() * video.yres, (unsigned)scene,
+            SCENE_NAMES[scene], (unsigned)ESP.getFreeHeap(),
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+            (unsigned long)video.mono1MaxRenderCycles(),
+            (unsigned long)video.mono1RenderBudgetCycles(),
+            (unsigned long)video.mono1OverBudgetCount(),
+            (unsigned long)video.mono1RenderedLines());
+        return;
+    }
+    if (line == "MONO DUMP" && fromUSB) { dumpFrame(); return; }
+    if (line == "Tab" || line == "tab" || line == "TAB") {
+        scene = (Scene)(((unsigned)scene + 1U) % SCENE_COUNT);
+        beginRender();
+        return;
+    }
     const float pan = viewHeight * 0.18f;
-    if (line == "LeftArrow" || line == "left") centerReal -= pan * (4.0f / 3.0f);
-    else if (line == "RightArrow" || line == "right") centerReal += pan * (4.0f / 3.0f);
-    else if (line == "UpArrow" || line == "up") centerImaginary -= pan;
-    else if (line == "DownArrow" || line == "down") centerImaginary += pan;
-    else if (line == "+" || line == "=" || line == "PageUp") viewHeight *= 0.6f;
-    else if (line == "-" || line == "PageDown") viewHeight *= 1.6f;
+    if (scene == FRACTAL && (line == "LeftArrow" || line == "left"))
+        centerReal -= pan * (4.0f / 3.0f);
+    else if (scene == FRACTAL && (line == "RightArrow" || line == "right"))
+        centerReal += pan * (4.0f / 3.0f);
+    else if (scene == FRACTAL && (line == "UpArrow" || line == "up"))
+        centerImaginary -= pan;
+    else if (scene == FRACTAL && (line == "DownArrow" || line == "down"))
+        centerImaginary += pan;
+    else if (scene == KNOT && (line == "LeftArrow" || line == "left"))
+        objectYaw -= 0.18f;
+    else if (scene == KNOT && (line == "RightArrow" || line == "right"))
+        objectYaw += 0.18f;
+    else if (scene == KNOT && (line == "UpArrow" || line == "up"))
+        objectPitch = max(-1.4f, objectPitch - 0.18f);
+    else if (scene == KNOT && (line == "DownArrow" || line == "down"))
+        objectPitch = min(1.4f, objectPitch + 0.18f);
+    else if (scene == FRACTAL && (line == "+" || line == "=" || line == "PageUp"))
+        viewHeight *= 0.6f;
+    else if (scene == FRACTAL && (line == "-" || line == "PageDown"))
+        viewHeight *= 1.6f;
+    else if (scene == KNOT && (line == "+" || line == "=" || line == "PageUp"))
+        objectZoom = min(1.55f, objectZoom * 1.12f);
+    else if (scene == KNOT && (line == "-" || line == "PageDown"))
+        objectZoom = max(0.72f, objectZoom / 1.12f);
     else if (line == "r" || line == "R") {
         centerReal = -0.65f;
         centerImaginary = 0.0f;
         viewHeight = 2.35f;
-    } else if (line == "MONO INFO") {
-        Serial.printf("MONO 1BIT %dx%d stride=%d frame=%d free=%u DMA=%u\n",
-            video.xres, video.yres, video.mono1Stride(),
-            video.mono1Stride() * video.yres, (unsigned)ESP.getFreeHeap(),
-            (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA));
-        return;
+        objectYaw = 0.45f;
+        objectPitch = -0.25f;
+        objectZoom = 1.0f;
     } else return;
     beginRender();
 }
@@ -219,7 +485,7 @@ void setup() {
     Serial.printf("MONO before init: heap=%u DMA=%u\n",
         (unsigned)ESP.getFreeHeap(),
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA));
-    videoReady = video.init(CompMode::MODEPALMono1Super, VIDEO_PIN, true,
+    videoReady = video.init(CompMode::MODEPALMono1Ultra7x, VIDEO_PIN, true,
         CompositeColorDAC::PixelStorage::Mono1);
     if (!videoReady) {
         Serial.println("MONO 1BIT video allocation failed");
@@ -235,14 +501,30 @@ void setup() {
 
 void loop() {
     String line;
-    while (controllerInput.poll(Serial1, line)) handleInput(line);
-    while (usbInput.poll(Serial, line)) handleInput(line);
+    while (controllerInput.poll(Serial1, line)) handleInput(line, false);
+    while (usbInput.poll(Serial, line)) handleInput(line, true);
     if (videoReady && nextRow < HEIGHT) {
-        renderRow(nextRow++);
+        if (scene == LETTERING) {
+            drawLettering();
+            nextRow = HEIGHT;
+        } else if (scene == KNOT) {
+            CMonoArt3D::render([&](int x, int y, bool white) {
+                video.mono1Pixel(x, y, white);
+            }, WIDTH, TOP_BAR, FOOTER_TOP - 1,
+               objectYaw, objectPitch, objectZoom);
+            nextRow = HEIGHT;
+        } else {
+            switch (scene) {
+            case FRACTAL: renderMandelbrotRow(nextRow); break;
+            case ETCHING: renderEtchingRow(nextRow); break;
+            default: break;
+            }
+            ++nextRow;
+        }
         if (nextRow == HEIGHT) {
+            if (scene == ETCHING) drawObservatory();
             drawCaption();
-            Serial.printf("MONO FRAME complete in %lu ms\n",
-                (unsigned long)(millis() - renderStarted));
+            reportFrame();
         }
     }
     delay(1);

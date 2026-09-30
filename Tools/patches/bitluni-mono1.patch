@@ -1,28 +1,325 @@
---- a/src/Composite/CompMode.h
-+++ b/src/Composite/CompMode.h
-@@ -27,6 +27,7 @@
- 	static const ModeComposite MODEPAL576Idiv3; // OOM in CompositeGrayPDM8/4-8266
- 	static const ModeComposite MODEPALColor288P; // OOM in CompositeGrayPDM8/4-8266
- 	static const ModeComposite MODEPALColor288Pmid; // OOM in CompositeGrayPDM8/4-8266
-+	static const ModeComposite MODEPALMono1Super; // 940x288, packed 1-bit PAL4x DAC mode
- 
- 	static const ModeComposite MODENTSC240P; // OOM in CompositeGrayPDM8/4-8266, incorrect sync in CompositeGrayPDM2-8266
- 	static const ModeComposite MODENTSCHalf120P; // incorrect sync in CompositeGrayPDM?-8266
-@@ -41,4 +42,3 @@
- 	static const ModeComposite MODE400x300;
- 	static const ModeComposite MODEPAL312P;
- };
--
+diff --git a/src/Composite/CompMode.cpp b/src/Composite/CompMode.cpp
 --- a/src/Composite/CompMode.cpp
 +++ b/src/Composite/CompMode.cpp
-@@ -180,6 +180,7 @@
+@@ -180,6 +180,9 @@
  //===========
  const ModeComposite CompMode::MODEPALColor288P(18, 56, 94, 600,  1+78,  6, 5, 5,  15+10, 288-88, 0, 0, 0, 0, 1, 11989505,10,25,4433619,true);
  const ModeComposite CompMode::MODEPALColor288Pmid(14, 34, 40, 376,  1,  6, 5, 5,  15, 288, 0, 0, 0, 0, 1, 7243659,6,20,4433619,true);
 +const ModeComposite CompMode::MODEPALMono1Super(14, 34, 40, 940,  1,  6, 5, 5,  15, 288, 0, 0, 0, 0, 1, 7243659,6,20,4433619,true);
++const ModeComposite CompMode::MODEPALMono1Ultra6x(14, 34, 40, 1410,  1,  6, 5, 5,  15, 288, 0, 0, 0, 0, 1, 7243659,6,20,4433619,true);
++const ModeComposite CompMode::MODEPALMono1Ultra7x(14, 34, 40, 1645,  1,  6, 5, 5,  15, 288, 0, 0, 0, 0, 1, 7243659,6,20,4433619,true);
  const ModeComposite CompMode::MODENTSCColor240P(24, 56, 72, 648,  1+36,  6, 6, 6,  12+4, 240-40, 0, 0, 0, 0, 1, 12560000,13,32,3579545,false);
  const ModeComposite CompMode::MODENTSCColor120P(24, 56, 72, 648,  1,  6, 6, 6,  12, 240, 0, 0, 0, 0, 2, 12560000,13,32,3579545,false);
  
+diff --git a/src/Composite/CompMode.h b/src/Composite/CompMode.h
+--- a/src/Composite/CompMode.h
++++ b/src/Composite/CompMode.h
+@@ -27,6 +27,9 @@
+ 	static const ModeComposite MODEPAL576Idiv3; // OOM in CompositeGrayPDM8/4-8266
+ 	static const ModeComposite MODEPALColor288P; // OOM in CompositeGrayPDM8/4-8266
+ 	static const ModeComposite MODEPALColor288Pmid; // OOM in CompositeGrayPDM8/4-8266
++	static const ModeComposite MODEPALMono1Super; // 940x288, packed 1-bit PAL4x DAC mode
++	static const ModeComposite MODEPALMono1Ultra6x; // 1410x288, experimental 6x subcarrier
++	static const ModeComposite MODEPALMono1Ultra7x; // 1645x288, experimental 7x subcarrier
+ 
+ 	static const ModeComposite MODENTSC240P; // OOM in CompositeGrayPDM8/4-8266, incorrect sync in CompositeGrayPDM2-8266
+ 	static const ModeComposite MODENTSCHalf120P; // incorrect sync in CompositeGrayPDM?-8266
+@@ -41,4 +44,3 @@
+ 	static const ModeComposite MODE400x300;
+ 	static const ModeComposite MODEPAL312P;
+ };
+-
+diff --git a/src/Composite/CompositeColorDAC.cpp b/src/Composite/CompositeColorDAC.cpp
+--- a/src/Composite/CompositeColorDAC.cpp
++++ b/src/Composite/CompositeColorDAC.cpp
+@@ -57,32 +57,71 @@
+     uint32_t colorClock = mode.colorClock;
+     if (colorClock < 4300000UL || colorClock > 4550000UL)
+         colorClock = adjustedClock(4433619UL, calibration.colorClockPpm);
+-    pal4xSampleRate = (long)(colorClock * 4UL);
+-    pal4xHSyncSamples = clampInteger(84 + calibration.hSyncAdjust * 2, 56, 116);
+-    pal4xBurstStart = clampInteger(
+-        100 + calibration.burstStartAdjust * 2,
+-        pal4xHSyncSamples + 4,
+-        156);
+-    pal4xBurstSamples = clampInteger(
+-        44 + calibration.burstLengthAdjust * 2,
+-        16,
+-        80);
+-    if (pal4xBurstStart + pal4xBurstSamples > 180)
+-        pal4xBurstSamples = 180 - pal4xBurstStart;
+-
+-    pal4xPictureStart = clampInteger(
++    // Color and the original mono mode retain their exact 4x timing.
++    // Experimental mono modes scale every horizontal sample count together,
++    // preserving the PAL line period and vertical cadence.
++    pal4xSampleMultiplier = mono1Enabled && mode.hRes == 1645 ? 7 :
++        mono1Enabled && mode.hRes == 1410 ? 6 : 4;
++    pal4xLineSamples = (PAL4X_LINE_SAMPLES / 4) * pal4xSampleMultiplier;
++    pal4xPictureSamples = mono1Enabled ? mode.hRes : PAL4X_PICTURE_SAMPLES;
++    pal4xSampleRate = (long)(colorClock * (uint32_t)pal4xSampleMultiplier);
++    // Keep the 7x APLL setting below its 500 MHz oscillator limit.
++    if (pal4xSampleMultiplier == 7 && pal4xSampleRate > 31200000L)
++        pal4xSampleRate = 31200000L;
++    const int baseHSync = clampInteger(84 + calibration.hSyncAdjust * 2, 56, 116);
++    pal4xHSyncSamples = baseHSync * pal4xSampleMultiplier / 4;
++    mono1MaxLineCycles = 0;
++    mono1LineCount = 0;
++    mono1OverBudgetLines = 0;
++    mono1LineBudgetCycles = mono1Enabled ?
++        (uint32_t)((uint64_t)getCpuFrequencyMhz() * 1000000ULL *
++            pal4xLineSamples / (uint32_t)pal4xSampleRate) : 0;
++    if (mono1Enabled)
++    {
++        pal4xBurstStart = 0;
++        pal4xBurstSamples = 0;
++    }
++    else
++    {
++        pal4xBurstStart = clampInteger(
++            100 + calibration.burstStartAdjust * 2,
++            pal4xHSyncSamples + 4,
++            156);
++        pal4xBurstSamples = clampInteger(
++            44 + calibration.burstLengthAdjust * 2,
++            16,
++            80);
++        if (pal4xBurstStart + pal4xBurstSamples > 180)
++            pal4xBurstSamples = 180 - pal4xBurstStart;
++    }
++
++    const int basePictureStart = clampInteger(
+         184 + calibration.activeStartSamples,
+         180,
+         PAL4X_LINE_SAMPLES - PAL4X_PICTURE_SAMPLES);
+-    // The packed blitter writes two DAC samples at once. Keep the active
+-    // picture on a 32-bit boundary; this changes calibration by at most one
+-    // 4x-subcarrier sample (about 56 ns).
++    pal4xPictureStart = basePictureStart * pal4xSampleMultiplier / 4;
++    // 32-bit DAC writes require an even sample offset. For the 7x mode this
++    // may move the calibrated edge left by one 37.6 ns sample.
+     pal4xPictureStart &= ~1;
+     rebuildPAL4xTables();
+ }
+ 
+ void CompositeColorDAC::rebuildPAL4xTables()
+ {
++    if (mono1Enabled)
++    {
++        const uint32_t black = (uint16_t)levelBlack << 8;
++        const uint32_t white = (uint16_t)levelWhite << 8;
++        for (int bits = 0; bits < 256; ++bits)
++            for (int pair = 0; pair < 4; ++pair)
++            {
++                const uint32_t first = bits & (0x80U >> (pair * 2)) ? white : black;
++                const uint32_t second = bits & (0x40U >> (pair * 2)) ? white : black;
++                pal4xMonoBytes[bits][pair] = (first << 16) | second;
++            }
++        return; // Monochrome needs neither color palette nor burst tables.
++    }
++
+     const double phaseRadians =
+         ((double)(pictureHueDegrees + activePhaseDegrees) * PI) / 180.0;
+     const double phaseCosine = cos(phaseRadians);
+@@ -202,7 +241,7 @@
+         return;
+     }
+ 
+-    const int lineBytes = PAL4X_LINE_SAMPLES * bytesPerSample();
++    const int lineBytes = pal4xLineSamples * bytesPerSample();
+     vBlankLineBuffer[0] = DMABufferDescriptor::allocateBuffer(lineBytes, true);
+     vBlankLineBuffer[1] = DMABufferDescriptor::allocateBuffer(lineBytes, true);
+     if (!vBlankLineBuffer[0] || !vBlankLineBuffer[1])
+@@ -237,7 +276,23 @@
+ 
+     int lineNumber = display->pal4xNextLine;
+     uint16_t *line = (uint16_t *)display->dmaBufferDescriptors[descriptor].buffer();
++    // Include sync and blank lines; their wide fills can be costlier than a
++    // picture blit at the experimental sample rates.
++    const bool measure = display->mono1Enabled;
++    uint32_t started = 0;
++    if (measure) asm volatile("rsr.ccount %0" : "=a"(started));
+     display->renderPAL4xLine(line, lineNumber, descriptor);
++    if (measure)
++    {
++        uint32_t finished;
++        asm volatile("rsr.ccount %0" : "=a"(finished));
++        const uint32_t used = finished - started;
++        ++display->mono1LineCount;
++        if (used > display->mono1MaxLineCycles)
++            display->mono1MaxLineCycles = used;
++        if (used >= display->mono1LineBudgetCycles)
++            ++display->mono1OverBudgetLines;
++    }
+ 
+     ++lineNumber;
+     if (lineNumber >= PAL4X_LINE_COUNT)
+@@ -253,17 +308,36 @@
+     uint16_t *line,
+     int lineParity)
+ {
++    if (mono1Enabled)
++    {
++        // Build a sync-to-blank line with one aligned 32-bit write per pair.
++        // At calibrated odd sync widths, the boundary pair holds one of each.
++        const uint16_t blank = (uint16_t)levelBlanking << 8;
++        const uint16_t sync = (uint16_t)levelSync << 8;
++        const uint32_t blankPair = (uint32_t)blank | ((uint32_t)blank << 16);
++        const uint32_t syncPair = (uint32_t)sync | ((uint32_t)sync << 16);
++        uint32_t *pairs = (uint32_t *)line;
++        const int totalPairs = pal4xLineSamples >> 1;
++        const int syncPairs = pal4xHSyncSamples >> 1;
++        int i = 0;
++        for (; i < syncPairs; ++i) pairs[i] = syncPair;
++        if (pal4xHSyncSamples & 1)
++            pairs[i++] = ((uint32_t)sync << 16) | blank;
++        for (; i < totalPairs; ++i) pairs[i] = blankPair;
++        return;
++    }
++
+     uint16_t blank = (uint16_t)levelBlanking << 8;
+     uint32_t blankPair = (uint32_t)blank | ((uint32_t)blank << 16);
+     uint32_t *pairs = (uint32_t *)line;
+-    for (int i = 0; i < PAL4X_LINE_SAMPLES / 2; ++i)
++    for (int i = 0; i < pal4xLineSamples / 2; ++i)
+         pairs[i] = blankPair;
+ 
+     uint16_t sync = (uint16_t)levelSync << 8;
+     for (int i = 0; i < pal4xHSyncSamples; ++i)
+         line[i ^ 1] = sync;
+ 
+-    for (int i = 0; i < pal4xBurstSamples; ++i)
++    for (int i = 0; !mono1Enabled && i < pal4xBurstSamples; ++i)
+     {
+         int sample = pal4xBurstStart + i;
+         line[sample ^ 1] = pal4xBurst[lineParity][sample & 3];
+@@ -274,23 +348,51 @@
+     uint16_t *line,
+     int lineNumber)
+ {
++    if (mono1Enabled)
++    {
++        // Sync and blank occupy disjoint pairs. Writing each pair once avoids
++        // a full-line clear followed by up to two long 16-bit sync overlays.
++        const int syncLine = lineNumber - PAL4X_SYNC_FIRST_LINE;
++        const int type = (syncLine == 3 || syncLine == 4) ? 3 :
++                         (syncLine == 5 ? 2 : 0);
++        const int longPairs = PAL4X_LONG_SYNC * pal4xSampleMultiplier / 8;
++        const int shortPairs = PAL4X_SHORT_SYNC * pal4xSampleMultiplier / 8;
++        const int firstPairs = (type & 2) ? longPairs : shortPairs;
++        const int secondPairs = (type & 1) ? longPairs : shortPairs;
++        const int halfPairs = pal4xLineSamples >> 2;
++        const int totalPairs = pal4xLineSamples >> 1;
++        const uint16_t blank = (uint16_t)levelBlanking << 8;
++        const uint16_t sync = (uint16_t)levelSync << 8;
++        const uint32_t blankPair = (uint32_t)blank | ((uint32_t)blank << 16);
++        const uint32_t syncPair = (uint32_t)sync | ((uint32_t)sync << 16);
++        uint32_t *pairs = (uint32_t *)line;
++        int i = 0;
++        for (; i < firstPairs; ++i) pairs[i] = syncPair;
++        for (; i < halfPairs; ++i) pairs[i] = blankPair;
++        for (; i < halfPairs + secondPairs; ++i) pairs[i] = syncPair;
++        for (; i < totalPairs; ++i) pairs[i] = blankPair;
++        return;
++    }
++
+     uint16_t blank = (uint16_t)levelBlanking << 8;
+     uint16_t sync = (uint16_t)levelSync << 8;
+     uint32_t blankPair = (uint32_t)blank | ((uint32_t)blank << 16);
+     uint32_t *pairs = (uint32_t *)line;
+-    for (int i = 0; i < PAL4X_LINE_SAMPLES / 2; ++i)
++    for (int i = 0; i < pal4xLineSamples / 2; ++i)
+         pairs[i] = blankPair;
+ 
+     int syncLine = lineNumber - PAL4X_SYNC_FIRST_LINE;
+     int type = (syncLine == 3 || syncLine == 4) ? 3 :
+                (syncLine == 5 ? 2 : 0);
+-    int firstWidth = (type & 2) ? PAL4X_LONG_SYNC : PAL4X_SHORT_SYNC;
+-    int secondWidth = (type & 1) ? PAL4X_LONG_SYNC : PAL4X_SHORT_SYNC;
++    const int longSync = PAL4X_LONG_SYNC * pal4xSampleMultiplier / 4;
++    const int shortSync = PAL4X_SHORT_SYNC * pal4xSampleMultiplier / 4;
++    int firstWidth = (type & 2) ? longSync : shortSync;
++    int secondWidth = (type & 1) ? longSync : shortSync;
+     for (int i = 0; i < firstWidth; ++i)
+         line[i ^ 1] = sync;
+     for (int i = 0; i < secondWidth; ++i)
+     {
+-        int sample = PAL4X_LINE_SAMPLES / 2 + i;
++        int sample = pal4xLineSamples / 2 + i;
+         line[sample ^ 1] = sync;
+     }
+ }
+@@ -298,7 +400,20 @@
+ void IRAM_ATTR CompositeColorDAC::clearPAL4xPicture(uint16_t *line)
+ {
+     uint16_t blank = (uint16_t)levelBlanking << 8;
+-    for (int i = 0; i < PAL4X_PICTURE_SAMPLES; ++i)
++    if (mono1Enabled)
++    {
++        // The first two non-picture scanlines reuse DMA descriptors that
++        // held active pixels. Clear the region as aligned pairs so neither
++        // transition exceeds the 64 us line deadline at 7x sample rate.
++        const uint32_t blankPair = (uint32_t)blank | ((uint32_t)blank << 16);
++        uint32_t *pairs = (uint32_t *)(line + pal4xPictureStart);
++        const int pairCount = pal4xPictureSamples >> 1;
++        for (int i = 0; i < pairCount; ++i) pairs[i] = blankPair;
++        if (pal4xPictureSamples & 1)
++            line[(pal4xPictureStart + pal4xPictureSamples - 1) ^ 1] = blank;
++        return;
++    }
++    for (int i = 0; i < pal4xPictureSamples; ++i)
+     {
+         int sample = pal4xPictureStart + i;
+         line[sample ^ 1] = blank;
+@@ -346,6 +461,37 @@
+     }
+ }
+ 
++void IRAM_ATTR CompositeColorDAC::blitPAL4xMono1Picture(
++    uint16_t *line, int sourceY)
++{
++    const uint8_t *source = (const uint8_t *)frontBuffer[sourceY];
++    uint32_t *destination = (uint32_t *)(line + pal4xPictureStart);
++    const int wholeBytes = pal4xPictureSamples >> 3;
++    for (int byte = 0; byte < wholeBytes; ++byte)
++    {
++        const uint32_t *pixels = pal4xMonoBytes[source[byte]];
++        destination[0] = pixels[0];
++        destination[1] = pixels[1];
++        destination[2] = pixels[2];
++        destination[3] = pixels[3];
++        destination += 4;
++    }
++    const int remainder = pal4xPictureSamples & 7;
++    if (remainder)
++    {
++        const uint8_t packed = source[wholeBytes];
++        const uint32_t *pixels = pal4xMonoBytes[packed];
++        for (int pair = 0; pair < (remainder >> 1); ++pair)
++            destination[pair] = pixels[pair];
++        if (remainder & 1)
++        {
++            const int last = pal4xPictureStart + (wholeBytes << 3) + remainder - 1;
++            line[last ^ 1] = packed & (0x80U >> (remainder - 1)) ?
++                (uint16_t)levelWhite << 8 : (uint16_t)levelBlack << 8;
++        }
++    }
++}
++
+ void IRAM_ATTR CompositeColorDAC::renderPAL4xLine(
+     uint16_t *line,
+     int lineNumber,
+@@ -371,7 +517,8 @@
+     if ((unsigned int)activeY < PAL4X_ACTIVE_LINES)
+     {
+         int sourceY = pal4xLowMemoryMode ? (activeY * 2) / 3 : activeY;
+-        blitPAL4xPicture(line, sourceY, parity);
++        if (mono1Enabled) blitPAL4xMono1Picture(line, sourceY);
++        else blitPAL4xPicture(line, sourceY, parity);
+         pal4xBufferHadPicture[descriptorIndex] = true;
+     }
+     else if (pal4xBufferHadPicture[descriptorIndex])
+diff --git a/src/Composite/CompositeColorDAC.h b/src/Composite/CompositeColorDAC.h
 --- a/src/Composite/CompositeColorDAC.h
 +++ b/src/Composite/CompositeColorDAC.h
 @@ -27,6 +27,7 @@
@@ -41,7 +338,7 @@
  	CompositeColorDAC() //DAC based modes only work with I2S0
  		: Composite(0)
  	{
-@@ -187,8 +189,15 @@
+@@ -187,8 +189,16 @@
  		       before.colorClockPpm != after.colorClockPpm;
  	}
  
@@ -53,13 +350,14 @@
 +	{
 +		mono1Enabled = storage == PixelStorage::Mono1;
 +		if (mono1Enabled &&
-+		    (!mode.phaseAlternating || mode.interlaced || mode.hRes != 940 ||
-+		     mode.vRes / mode.vDiv != PAL4X_ACTIVE_LINES))
++		    (!mode.phaseAlternating || mode.interlaced ||
++		     (mode.hRes != 940 && mode.hRes != 1410 && mode.hRes != 1645) ||
++		     mode.vDiv == 0 || mode.vRes / mode.vDiv != PAL4X_ACTIVE_LINES))
 +			return false;
  		int pinMap[16] = {
  			-1, -1, 
  			-1, -1, -1, -1, -1,
-@@ -199,11 +208,11 @@
+@@ -199,11 +209,11 @@
  		this->voltageDivider = voltageDivider;
  		prepareCalibration(voltageDivider);
  		ModeComposite adjustedMode = calibratedMode(mode);
@@ -74,7 +372,7 @@
  			? ((int)indexedColor(0, 0, 0) << 8)
  			: ((int)levelBlack << 8);
  		firstPixelOffset = adjustedMode.hSync + adjustedMode.hBack + calibration.activeStartSamples;
-@@ -218,6 +227,7 @@
+@@ -218,6 +228,7 @@
  
  	bool init(const ModeComposite &mode, const PinConfigComposite &pinConfig)
  	{
@@ -82,7 +380,7 @@
  		int pinMap[16] = {
  			-1, -1, 
  			-1, -1, -1, -1, -1,
-@@ -328,18 +338,33 @@
+@@ -328,18 +339,33 @@
  
  	virtual void dotFast(int x, int y, Color color) override
  	{
@@ -116,7 +414,7 @@
  		if (!pal4xEnabled)
  		{
  			GraphicsX8CA8Swapped::fillRect(x, y, w, h, color);
-@@ -361,6 +386,11 @@
+@@ -361,6 +387,11 @@
  
  	virtual void xLine(int x0, int x1, int y, Color color) override
  	{
@@ -128,7 +426,7 @@
  		if (!pal4xEnabled)
  		{
  			GraphicsX8CA8Swapped::xLine(x0, x1, y, color);
-@@ -378,6 +408,13 @@
+@@ -378,6 +409,13 @@
  
  	void rect(int x, int y, int w, int h, Color color)
  	{
@@ -142,7 +440,7 @@
  		if (!pal4xEnabled)
  		{
  			GraphicsX8CA8Swapped::rect(x, y, w, h, color);
-@@ -393,6 +430,7 @@
+@@ -393,6 +431,7 @@
  
  	virtual void clear(Color color = 0) override
  	{
@@ -150,7 +448,7 @@
  		if (pal4xEnabled)
  			fillRect(0, 0, xres, yres, color);
  		else
-@@ -409,9 +447,66 @@
+@@ -409,9 +448,88 @@
  
  	virtual BufferUnit **allocateFrameBuffer()
  	{
@@ -170,6 +468,10 @@
 +	}
 +
 +	bool isMono1Bit() const { return mono1Enabled; }
++	uint32_t mono1MaxRenderCycles() const { return mono1MaxLineCycles; }
++	uint32_t mono1RenderedLines() const { return mono1LineCount; }
++	uint32_t mono1OverBudgetCount() const { return mono1OverBudgetLines; }
++	uint32_t mono1RenderBudgetCycles() const { return mono1LineBudgetCycles; }
 +	int mono1Stride() const { return (xres + 7) / 8; }
 +	uint8_t *mono1Row(int y) {
 +		return mono1Enabled && backBuffer && (unsigned)y < (unsigned)yres
@@ -205,10 +507,28 @@
 +		if (!mono1Enabled || !backBuffer || w <= 0 || h <= 0) return;
 +		if (x < 0) { w += x; x = 0; }
 +		if (y < 0) { h += y; y = 0; }
-+		if (x + w > xres) w = xres - x;
-+		if (y + h > yres) h = yres - y;
-+		for (int yy = y; yy < y + h; ++yy)
-+			for (int xx = x; xx < x + w; ++xx) mono1Pixel(xx, yy, white);
++		if (x >= xres || y >= yres) return;
++		if (w > xres - x) w = xres - x;
++		if (h > yres - y) h = yres - y;
++		if (w <= 0 || h <= 0) return;
++		const int first = x >> 3;
++		const int last = (x + w - 1) >> 3;
++		const uint8_t firstMask = (uint8_t)(0xffU >> (x & 7));
++		const uint8_t lastMask = (uint8_t)(0xffU << (7 - ((x + w - 1) & 7)));
++		for (int yy = y; yy < y + h; ++yy) {
++			uint8_t *row = (uint8_t *)backBuffer[yy];
++			if (first == last) {
++				const uint8_t mask = firstMask & lastMask;
++				if (white) row[first] |= mask;
++				else row[first] &= (uint8_t)~mask;
++				continue;
++			}
++			if (white) row[first] |= firstMask;
++			else row[first] &= (uint8_t)~firstMask;
++			if (last > first + 1) memset(row + first + 1, white ? 0xff : 0, last - first - 1);
++			if (white) row[last] |= lastMask;
++			else row[last] &= (uint8_t)~lastMask;
++		}
 +	}
 +
 +	bool mono1White(Color color) const
@@ -217,23 +537,42 @@
  	}
  
  	virtual void allocateLineBuffers()
-@@ -777,6 +872,7 @@
+@@ -771,14 +889,22 @@
+ 	static const int PAL4X_ACTIVE_FIRST_LINE = 8;
+ 	static const int PAL4X_SYNC_FIRST_LINE = 304;
+ 	static const int PAL4X_PICTURE_SAMPLES = 940;
++	// The 7x mode is the largest whole-line DMA transfer below 4095 bytes.
++	static const int PAL4X_MONO_MAX_MULTIPLIER = 7;
++	static_assert((PAL4X_LINE_SAMPLES / 4) * PAL4X_MONO_MAX_MULTIPLIER * 2 <= 4095,
++	              "Mono PAL DMA line exceeds one descriptor");
+ 
+ 	bool calibrationConfigured = false;
+ 	bool calibrationStorageChecked = false;
  	bool calibrationLoadedFromStorage = false;
  	bool autoLoadCalibration = true;
  	bool pal4xEnabled = false;
 +	bool mono1Enabled = false;
  	bool pal4xLowMemoryMode = false;
  	long pal4xSampleRate = 17734476L;
++	int pal4xSampleMultiplier = 4;
++	int pal4xLineSamples = PAL4X_LINE_SAMPLES;
++	int pal4xPictureSamples = PAL4X_PICTURE_SAMPLES;
  	int pal4xHSyncSamples = 84;
-@@ -788,6 +884,7 @@
+ 	int pal4xBurstStart = 100;
+ 	int pal4xBurstSamples = 44;
+@@ -788,6 +914,11 @@
  	bool pal4xBufferHadPicture[2] = {false, false};
  	uint16_t pal4xPalette[2][256][4];
  	uint16_t pal4xBurst[2][4];
-+	uint32_t pal4xMonoNibbles[16][2];
++	uint32_t pal4xMonoBytes[256][4];
++	volatile uint32_t mono1MaxLineCycles = 0;
++	volatile uint32_t mono1LineCount = 0;
++	volatile uint32_t mono1OverBudgetLines = 0;
++	uint32_t mono1LineBudgetCycles = 0;
  	uint32_t *indexedPaletteOverrides = 0;
  
  	bool supportsPAL4x(const ModeComposite &candidate) const;
-@@ -800,6 +897,7 @@
+@@ -800,6 +931,7 @@
  	void IRAM_ATTR renderPAL4xSync(uint16_t *line, int lineNumber);
  	void IRAM_ATTR clearPAL4xPicture(uint16_t *line);
  	void IRAM_ATTR blitPAL4xPicture(uint16_t *line, int sourceY, int lineParity);
@@ -241,72 +580,3 @@
  
  	void prepareCalibration(bool useVoltageDivider)
  	{
---- a/src/Composite/CompositeColorDAC.cpp
-+++ b/src/Composite/CompositeColorDAC.cpp
-@@ -83,6 +83,18 @@
- 
- void CompositeColorDAC::rebuildPAL4xTables()
- {
-+    const uint32_t black = (uint16_t)levelBlack << 8;
-+    const uint32_t white = (uint16_t)levelWhite << 8;
-+    for (int bits = 0; bits < 16; ++bits)
-+    {
-+        const uint32_t p0 = (bits & 8) ? white : black;
-+        const uint32_t p1 = (bits & 4) ? white : black;
-+        const uint32_t p2 = (bits & 2) ? white : black;
-+        const uint32_t p3 = (bits & 1) ? white : black;
-+        pal4xMonoNibbles[bits][0] = (p0 << 16) | p1;
-+        pal4xMonoNibbles[bits][1] = (p2 << 16) | p3;
-+    }
-+
-     const double phaseRadians =
-         ((double)(pictureHueDegrees + activePhaseDegrees) * PI) / 180.0;
-     const double phaseCosine = cos(phaseRadians);
-@@ -263,7 +275,7 @@
-     for (int i = 0; i < pal4xHSyncSamples; ++i)
-         line[i ^ 1] = sync;
- 
--    for (int i = 0; i < pal4xBurstSamples; ++i)
-+    for (int i = 0; !mono1Enabled && i < pal4xBurstSamples; ++i)
-     {
-         int sample = pal4xBurstStart + i;
-         line[sample ^ 1] = pal4xBurst[lineParity][sample & 3];
-@@ -346,6 +358,28 @@
-     }
- }
- 
-+void IRAM_ATTR CompositeColorDAC::blitPAL4xMono1Picture(
-+    uint16_t *line, int sourceY)
-+{
-+    const uint8_t *source = (const uint8_t *)frontBuffer[sourceY];
-+    uint32_t *destination = (uint32_t *)(line + pal4xPictureStart);
-+    // 940 packed pixels occupy 117 full bytes plus the high nibble of byte 118.
-+    for (int byte = 0; byte < 117; ++byte)
-+    {
-+        const uint8_t packed = source[byte];
-+        const uint32_t *high = pal4xMonoNibbles[packed >> 4];
-+        const uint32_t *low = pal4xMonoNibbles[packed & 15];
-+        destination[0] = high[0];
-+        destination[1] = high[1];
-+        destination[2] = low[0];
-+        destination[3] = low[1];
-+        destination += 4;
-+    }
-+    const uint32_t *tail = pal4xMonoNibbles[source[117] >> 4];
-+    destination[0] = tail[0];
-+    destination[1] = tail[1];
-+}
-+
- void IRAM_ATTR CompositeColorDAC::renderPAL4xLine(
-     uint16_t *line,
-     int lineNumber,
-@@ -371,7 +405,8 @@
-     if ((unsigned int)activeY < PAL4X_ACTIVE_LINES)
-     {
-         int sourceY = pal4xLowMemoryMode ? (activeY * 2) / 3 : activeY;
--        blitPAL4xPicture(line, sourceY, parity);
-+        if (mono1Enabled) blitPAL4xMono1Picture(line, sourceY);
-+        else blitPAL4xPicture(line, sourceY, parity);
-         pal4xBufferHadPicture[descriptorIndex] = true;
-     }
-     else if (pal4xBufferHadPicture[descriptorIndex])
