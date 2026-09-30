@@ -32,6 +32,21 @@ class CitCompositeColorDAC : public CompositeColorDAC {
         return ok;
     }
 
+#ifdef CITADELA_BITLUNI_MONO1
+    bool init(const ModeComposite &mode, const int outputPin, const bool voltageDivider,
+              Base::PixelStorage storage) {
+        if (videoMemoryAllocated) releaseVideoMemory();
+        bool ok = Base::init(mode, outputPin, voltageDivider, storage);
+        if (!ok) {
+            videoMemoryAllocated = true;
+            releaseVideoMemory();
+            return false;
+        }
+        videoMemoryAllocated = ok;
+        return ok;
+    }
+#endif
+
     void releaseVideoMemory() {
         if (!videoMemoryAllocated) return;
 

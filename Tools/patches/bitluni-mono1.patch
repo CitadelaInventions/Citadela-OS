@@ -1,0 +1,312 @@
+--- a/src/Composite/CompMode.h
++++ b/src/Composite/CompMode.h
+@@ -27,6 +27,7 @@
+ 	static const ModeComposite MODEPAL576Idiv3; // OOM in CompositeGrayPDM8/4-8266
+ 	static const ModeComposite MODEPALColor288P; // OOM in CompositeGrayPDM8/4-8266
+ 	static const ModeComposite MODEPALColor288Pmid; // OOM in CompositeGrayPDM8/4-8266
++	static const ModeComposite MODEPALMono1Super; // 940x288, packed 1-bit PAL4x DAC mode
+ 
+ 	static const ModeComposite MODENTSC240P; // OOM in CompositeGrayPDM8/4-8266, incorrect sync in CompositeGrayPDM2-8266
+ 	static const ModeComposite MODENTSCHalf120P; // incorrect sync in CompositeGrayPDM?-8266
+@@ -41,4 +42,3 @@
+ 	static const ModeComposite MODE400x300;
+ 	static const ModeComposite MODEPAL312P;
+ };
+-
+--- a/src/Composite/CompMode.cpp
++++ b/src/Composite/CompMode.cpp
+@@ -180,6 +180,7 @@
+ //===========
+ const ModeComposite CompMode::MODEPALColor288P(18, 56, 94, 600,  1+78,  6, 5, 5,  15+10, 288-88, 0, 0, 0, 0, 1, 11989505,10,25,4433619,true);
+ const ModeComposite CompMode::MODEPALColor288Pmid(14, 34, 40, 376,  1,  6, 5, 5,  15, 288, 0, 0, 0, 0, 1, 7243659,6,20,4433619,true);
++const ModeComposite CompMode::MODEPALMono1Super(14, 34, 40, 940,  1,  6, 5, 5,  15, 288, 0, 0, 0, 0, 1, 7243659,6,20,4433619,true);
+ const ModeComposite CompMode::MODENTSCColor240P(24, 56, 72, 648,  1+36,  6, 6, 6,  12+4, 240-40, 0, 0, 0, 0, 1, 12560000,13,32,3579545,false);
+ const ModeComposite CompMode::MODENTSCColor120P(24, 56, 72, 648,  1,  6, 6, 6,  12, 240, 0, 0, 0, 0, 2, 12560000,13,32,3579545,false);
+ 
+--- a/src/Composite/CompositeColorDAC.h
++++ b/src/Composite/CompositeColorDAC.h
+@@ -27,6 +27,7 @@
+ 	Connect pin 25 or 26
+ */
+ #pragma once
++#define CITADELA_BITLUNI_MONO1 1
+ #include "Composite.h"
+ #include "CompositeColorCalibration.h"
+ #include "../Graphics/GraphicsX8CA8Swapped.h"
+@@ -38,6 +39,7 @@
+ class CompositeColorDAC : public Composite, public GraphicsX8CA8Swapped
+ {
+   public:
++	enum class PixelStorage : uint8_t { Color, Mono1 };
+ 	CompositeColorDAC() //DAC based modes only work with I2S0
+ 		: Composite(0)
+ 	{
+@@ -187,8 +189,15 @@
+ 		       before.colorClockPpm != after.colorClockPpm;
+ 	}
+ 
+-	bool init(const ModeComposite &mode, const int outputPin = 25, const bool voltageDivider = false)
+-	{
++	bool init(const ModeComposite &mode, const int outputPin = 25,
++	          const bool voltageDivider = false,
++	          PixelStorage storage = PixelStorage::Color)
++	{
++		mono1Enabled = storage == PixelStorage::Mono1;
++		if (mono1Enabled &&
++		    (!mode.phaseAlternating || mode.interlaced || mode.hRes != 940 ||
++		     mode.vRes / mode.vDiv != PAL4X_ACTIVE_LINES))
++			return false;
+ 		int pinMap[16] = {
+ 			-1, -1, 
+ 			-1, -1, -1, -1, -1,
+@@ -199,11 +208,11 @@
+ 		this->voltageDivider = voltageDivider;
+ 		prepareCalibration(voltageDivider);
+ 		ModeComposite adjustedMode = calibratedMode(mode);
+-		pal4xEnabled = supportsPAL4x(adjustedMode);
++		pal4xEnabled = mono1Enabled || supportsPAL4x(adjustedMode);
+ 		pal4xLowMemoryMode = pal4xEnabled && adjustedMode.hRes == 400 &&
+ 			adjustedMode.activeLineCount == 192;
+-		setIndexedColorMode(pal4xEnabled);
+-		defaultBufferValue = pal4xEnabled
++		setIndexedColorMode(pal4xEnabled && !mono1Enabled);
++		defaultBufferValue = mono1Enabled ? 0 : pal4xEnabled
+ 			? ((int)indexedColor(0, 0, 0) << 8)
+ 			: ((int)levelBlack << 8);
+ 		firstPixelOffset = adjustedMode.hSync + adjustedMode.hBack + calibration.activeStartSamples;
+@@ -218,6 +227,7 @@
+ 
+ 	bool init(const ModeComposite &mode, const PinConfigComposite &pinConfig)
+ 	{
++		mono1Enabled = false;
+ 		int pinMap[16] = {
+ 			-1, -1, 
+ 			-1, -1, -1, -1, -1,
+@@ -328,18 +338,33 @@
+ 
+ 	virtual void dotFast(int x, int y, Color color) override
+ 	{
++		if (mono1Enabled) { mono1Pixel(x, y, mono1White(color)); return; }
+ 		writePixelFast(x, y, color);
+ 	}
+ 
+ 	virtual void dot(int x, int y, Color color) override
+ 	{
++		if (mono1Enabled) { mono1Pixel(x, y, mono1White(color)); return; }
+ 		if ((unsigned int)x < (unsigned int)xres &&
+ 		    (unsigned int)y < (unsigned int)yres)
+ 			writePixelFast(x, y, color);
+ 	}
+ 
++	virtual Color getFast(int x, int y) override
++	{
++		if (mono1Enabled) return mono1PixelAt(x, y) ? RGB(255, 255, 255) : RGB(0, 0, 0);
++		return GraphicsX8CA8Swapped::getFast(x, y);
++	}
++
++	virtual Color get(int x, int y) override
++	{
++		if (mono1Enabled) return getFast(x, y);
++		return GraphicsX8CA8Swapped::get(x, y);
++	}
++
+ 	void fillRect(int x, int y, int w, int h, Color color)
+ 	{
++		if (mono1Enabled) { mono1FillRect(x, y, w, h, mono1White(color)); return; }
+ 		if (!pal4xEnabled)
+ 		{
+ 			GraphicsX8CA8Swapped::fillRect(x, y, w, h, color);
+@@ -361,6 +386,11 @@
+ 
+ 	virtual void xLine(int x0, int x1, int y, Color color) override
+ 	{
++		if (mono1Enabled) {
++			if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
++			mono1FillRect(x0, y, x1 - x0, 1, mono1White(color));
++			return;
++		}
+ 		if (!pal4xEnabled)
+ 		{
+ 			GraphicsX8CA8Swapped::xLine(x0, x1, y, color);
+@@ -378,6 +408,13 @@
+ 
+ 	void rect(int x, int y, int w, int h, Color color)
+ 	{
++		if (mono1Enabled) {
++			mono1FillRect(x, y, w, 1, mono1White(color));
++			mono1FillRect(x, y + h - 1, w, 1, mono1White(color));
++			mono1FillRect(x, y + 1, 1, h - 2, mono1White(color));
++			mono1FillRect(x + w - 1, y + 1, 1, h - 2, mono1White(color));
++			return;
++		}
+ 		if (!pal4xEnabled)
+ 		{
+ 			GraphicsX8CA8Swapped::rect(x, y, w, h, color);
+@@ -393,6 +430,7 @@
+ 
+ 	virtual void clear(Color color = 0) override
+ 	{
++		if (mono1Enabled) { mono1Clear(mono1White(color)); return; }
+ 		if (pal4xEnabled)
+ 			fillRect(0, 0, xres, yres, color);
+ 		else
+@@ -409,9 +447,66 @@
+ 
+ 	virtual BufferUnit **allocateFrameBuffer()
+ 	{
++		if (mono1Enabled) {
++			BufferUnit **rows = (BufferUnit **)calloc(yres, sizeof(BufferUnit *));
++			if (!rows) return nullptr;
++			const size_t stride = (xres + 7) / 8;
++			for (int y = 0; y < yres; ++y) {
++				rows[y] = (BufferUnit *)calloc(stride, 1);
++				if (!rows[y]) break; // Caller releases every allocated row on failure.
++			}
++			return rows;
++		}
+ 		uint8_t initial = pal4xEnabled ? indexedColor(0, 0, 0) : levelBlanking;
+ 		return (BufferUnit **)DMABufferDescriptor::allocateDMABufferArray(
+ 			yres, xres * bytesPerSample(), true, 0x01000100UL * initial);
++	}
++
++	bool isMono1Bit() const { return mono1Enabled; }
++	int mono1Stride() const { return (xres + 7) / 8; }
++	uint8_t *mono1Row(int y) {
++		return mono1Enabled && backBuffer && (unsigned)y < (unsigned)yres
++			? (uint8_t *)backBuffer[y] : nullptr;
++	}
++
++	void mono1Clear(bool white = false)
++	{
++		if (!mono1Enabled || !backBuffer) return;
++		for (int y = 0; y < yres; ++y)
++			memset(backBuffer[y], white ? 0xff : 0, mono1Stride());
++	}
++
++	void mono1Pixel(int x, int y, bool white)
++	{
++		if (!mono1Enabled || !backBuffer ||
++		    (unsigned)x >= (unsigned)xres || (unsigned)y >= (unsigned)yres) return;
++		uint8_t *row = (uint8_t *)backBuffer[y];
++		const uint8_t mask = (uint8_t)(0x80U >> (x & 7));
++		if (white) row[x >> 3] |= mask;
++		else row[x >> 3] &= (uint8_t)~mask;
++	}
++
++	bool mono1PixelAt(int x, int y) const
++	{
++		if (!mono1Enabled || !backBuffer ||
++		    (unsigned)x >= (unsigned)xres || (unsigned)y >= (unsigned)yres) return false;
++		return (((const uint8_t *)backBuffer[y])[x >> 3] & (0x80U >> (x & 7))) != 0;
++	}
++
++	void mono1FillRect(int x, int y, int w, int h, bool white)
++	{
++		if (!mono1Enabled || !backBuffer || w <= 0 || h <= 0) return;
++		if (x < 0) { w += x; x = 0; }
++		if (y < 0) { h += y; y = 0; }
++		if (x + w > xres) w = xres - x;
++		if (y + h > yres) h = yres - y;
++		for (int yy = y; yy < y + h; ++yy)
++			for (int xx = x; xx < x + w; ++xx) mono1Pixel(xx, yy, white);
++	}
++
++	bool mono1White(Color color) const
++	{
++		return (77 * R(color) + 150 * G(color) + 29 * B(color)) >= 32768;
+ 	}
+ 
+ 	virtual void allocateLineBuffers()
+@@ -777,6 +872,7 @@
+ 	bool calibrationLoadedFromStorage = false;
+ 	bool autoLoadCalibration = true;
+ 	bool pal4xEnabled = false;
++	bool mono1Enabled = false;
+ 	bool pal4xLowMemoryMode = false;
+ 	long pal4xSampleRate = 17734476L;
+ 	int pal4xHSyncSamples = 84;
+@@ -788,6 +884,7 @@
+ 	bool pal4xBufferHadPicture[2] = {false, false};
+ 	uint16_t pal4xPalette[2][256][4];
+ 	uint16_t pal4xBurst[2][4];
++	uint32_t pal4xMonoNibbles[16][2];
+ 	uint32_t *indexedPaletteOverrides = 0;
+ 
+ 	bool supportsPAL4x(const ModeComposite &candidate) const;
+@@ -800,6 +897,7 @@
+ 	void IRAM_ATTR renderPAL4xSync(uint16_t *line, int lineNumber);
+ 	void IRAM_ATTR clearPAL4xPicture(uint16_t *line);
+ 	void IRAM_ATTR blitPAL4xPicture(uint16_t *line, int sourceY, int lineParity);
++	void IRAM_ATTR blitPAL4xMono1Picture(uint16_t *line, int sourceY);
+ 
+ 	void prepareCalibration(bool useVoltageDivider)
+ 	{
+--- a/src/Composite/CompositeColorDAC.cpp
++++ b/src/Composite/CompositeColorDAC.cpp
+@@ -83,6 +83,18 @@
+ 
+ void CompositeColorDAC::rebuildPAL4xTables()
+ {
++    const uint32_t black = (uint16_t)levelBlack << 8;
++    const uint32_t white = (uint16_t)levelWhite << 8;
++    for (int bits = 0; bits < 16; ++bits)
++    {
++        const uint32_t p0 = (bits & 8) ? white : black;
++        const uint32_t p1 = (bits & 4) ? white : black;
++        const uint32_t p2 = (bits & 2) ? white : black;
++        const uint32_t p3 = (bits & 1) ? white : black;
++        pal4xMonoNibbles[bits][0] = (p0 << 16) | p1;
++        pal4xMonoNibbles[bits][1] = (p2 << 16) | p3;
++    }
++
+     const double phaseRadians =
+         ((double)(pictureHueDegrees + activePhaseDegrees) * PI) / 180.0;
+     const double phaseCosine = cos(phaseRadians);
+@@ -263,7 +275,7 @@
+     for (int i = 0; i < pal4xHSyncSamples; ++i)
+         line[i ^ 1] = sync;
+ 
+-    for (int i = 0; i < pal4xBurstSamples; ++i)
++    for (int i = 0; !mono1Enabled && i < pal4xBurstSamples; ++i)
+     {
+         int sample = pal4xBurstStart + i;
+         line[sample ^ 1] = pal4xBurst[lineParity][sample & 3];
+@@ -346,6 +358,28 @@
+     }
+ }
+ 
++void IRAM_ATTR CompositeColorDAC::blitPAL4xMono1Picture(
++    uint16_t *line, int sourceY)
++{
++    const uint8_t *source = (const uint8_t *)frontBuffer[sourceY];
++    uint32_t *destination = (uint32_t *)(line + pal4xPictureStart);
++    // 940 packed pixels occupy 117 full bytes plus the high nibble of byte 118.
++    for (int byte = 0; byte < 117; ++byte)
++    {
++        const uint8_t packed = source[byte];
++        const uint32_t *high = pal4xMonoNibbles[packed >> 4];
++        const uint32_t *low = pal4xMonoNibbles[packed & 15];
++        destination[0] = high[0];
++        destination[1] = high[1];
++        destination[2] = low[0];
++        destination[3] = low[1];
++        destination += 4;
++    }
++    const uint32_t *tail = pal4xMonoNibbles[source[117] >> 4];
++    destination[0] = tail[0];
++    destination[1] = tail[1];
++}
++
+ void IRAM_ATTR CompositeColorDAC::renderPAL4xLine(
+     uint16_t *line,
+     int lineNumber,
+@@ -371,7 +405,8 @@
+     if ((unsigned int)activeY < PAL4X_ACTIVE_LINES)
+     {
+         int sourceY = pal4xLowMemoryMode ? (activeY * 2) / 3 : activeY;
+-        blitPAL4xPicture(line, sourceY, parity);
++        if (mono1Enabled) blitPAL4xMono1Picture(line, sourceY);
++        else blitPAL4xPicture(line, sourceY, parity);
+         pal4xBufferHadPicture[descriptorIndex] = true;
+     }
+     else if (pal4xBufferHadPicture[descriptorIndex])
