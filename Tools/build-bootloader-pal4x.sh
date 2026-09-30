@@ -19,11 +19,11 @@ mkdir -p "$staged_lib"
 rsync -a --delete --exclude='* 2.cpp' "$video_lib/" "$staged_lib/"
 
 arduino-cli compile \
+    --clean \
     --fqbn 'esp32:esp32:esp32:UploadSpeed=460800,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default' \
     --library "$staged_lib" \
     --output-dir "$output_dir" \
     "$repo_root/System/bootloader"
 
 cp "$output_dir/bootloader.ino.bin" "$repo_root/System/bootloader.bin"
-cp "$output_dir/bootloader.ino.bin" "$repo_root/System/bootloader/bootloader.bin"
 echo "PAL4x bootloader app image: $repo_root/System/bootloader.bin"

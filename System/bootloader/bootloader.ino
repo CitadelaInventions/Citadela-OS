@@ -64,14 +64,16 @@ static void clearStaleBootState() {
         Serial.println("Could not clear the boot state.");
 }
 
-static uint32_t white() { return videodisplay.RGB(239, 247, 246); }
-static uint32_t accent() { return videodisplay.RGB(40, 217, 189); }
-static uint32_t background() { return videodisplay.RGB(7, 17, 29); }
-static uint32_t muted() { return videodisplay.RGB(143, 171, 181); }
-static uint32_t panel() { return videodisplay.RGB(19, 39, 53); }
+static uint32_t ink() { return videodisplay.RGB(21, 54, 66); }
+static uint32_t accent() { return videodisplay.RGB(0, 119, 111); }
+static uint32_t background() { return videodisplay.RGB(231, 241, 237); }
+static uint32_t muted() { return videodisplay.RGB(75, 105, 109); }
+static uint32_t panel() { return videodisplay.RGB(250, 252, 248); }
+static uint32_t selectedPanel() { return videodisplay.RGB(190, 230, 218); }
+static uint32_t border() { return videodisplay.RGB(171, 199, 193); }
 
-static void printAt(int x, int y, const String &message, uint32_t color) {
-    videodisplay.setTextColor(color, background());
+static void printAt(int x, int y, const String &message, uint32_t color, uint32_t fill) {
+    videodisplay.setTextColor(color, fill);
     videodisplay.setCursor(x, y);
     videodisplay.print(message.c_str());
 }
@@ -79,77 +81,111 @@ static void printAt(int x, int y, const String &message, uint32_t color) {
 static void drawFrame(const char *title) {
     if (!videoReady) return;
     videodisplay.clear(background());
-    videodisplay.fillRect(0, 0, SCREEN_WIDTH, 3, accent());
-    videodisplay.fillRect(0, 3, SCREEN_WIDTH, 40, panel());
-    videodisplay.fillRect(0, 43, SCREEN_WIDTH, 1, videodisplay.RGB(46, 77, 86));
+    videodisplay.fillRect(0, 0, SCREEN_WIDTH, 4, accent());
+    videodisplay.fillRect(0, 4, SCREEN_WIDTH, 43, panel());
+    videodisplay.fillRect(0, 47, SCREEN_WIDTH, 1, border());
+    videodisplay.fillRect(16, 12, 27, 27, accent());
+    videodisplay.rect(21, 17, 17, 17, panel());
+    videodisplay.fillRect(32, 20, 7, 11, accent());
     videodisplay.setFont(Font8x8);
-    printAt(15, 13, title, white());
+    printAt(53, 12, "CITADELA", ink(), panel());
     videodisplay.setFont(Font6x8);
-    printAt(15, 30, "CITADELA  /  SYSTEM RECOVERY", accent());
+    printAt(53, 29, "BOOT MANAGER  /  SYSTEM RECOVERY", muted(), panel());
+    videodisplay.setFont(Font8x8);
+    printAt(17, 54, title, ink(), background());
     videodisplay.fillRect(0, 260, SCREEN_WIDTH, 28, panel());
-    printAt(15, 270, "UP/DOWN Select   ENTER Open   TAB Bluetooth   ESC Back", muted());
+    videodisplay.fillRect(0, 260, SCREEN_WIDTH, 1, border());
+    videodisplay.setFont(Font6x8);
+    printAt(15, 270, "UP/DOWN Select   ENTER Open   TAB Pair   ESC Back", muted(), panel());
 }
 
 static void drawStatus() {
     if (!videoReady) return;
-    videodisplay.fillRect(15, 231, SCREEN_WIDTH - 30, 23, background());
+    videodisplay.fillRect(16, 230, SCREEN_WIDTH - 32, 24, panel());
+    videodisplay.rect(16, 230, SCREEN_WIDTH - 32, 24, border());
     String shown = statusLine.length() ? statusLine :
-        (bluetoothConnected ? "Keyboard connected" : "Keyboard disconnected  -  TAB to pair");
-    videodisplay.fillRect(17, 239, 4, 4, bluetoothConnected ? accent() : videodisplay.RGB(229, 167, 88));
-    printAt(27, 237, shown.substring(0, 52), muted());
+        (bluetoothConnected ? "Keyboard connected" : "Keyboard not connected  -  TAB to pair");
+    videodisplay.fillRect(23, 239, 7, 7, bluetoothConnected ? accent() : videodisplay.RGB(188, 117, 43));
+    videodisplay.setFont(Font6x8);
+    printAt(39, 238, shown.substring(0, 49), muted(), panel());
 }
 
 static void drawMenu() {
     if (!videoReady) return;
-    drawFrame("Boot & Recovery");
-    printAt(18, 51, "Choose a system action", muted());
+    drawFrame("Choose an action");
+    videodisplay.setFont(Font6x8);
+    printAt(18, 68, "START  /  MAINTAIN  /  RECOVER", muted(), background());
+    printAt(317, 55, String(selectedItem + 1) + " / 5", accent(), background());
     for (int i = 0; i < 5; ++i) {
-        int y = 69 + i * 31;
+        int y = 80 + i * 29;
         bool selected = i == selectedItem;
-        uint32_t fill = selected ? videodisplay.RGB(25, 76, 79) : panel();
-        videodisplay.fillRect(16, y, SCREEN_WIDTH - 32, 27, fill);
-        if (selected) videodisplay.fillRect(16, y, 4, 27, accent());
-        videodisplay.setTextColor(selected ? white() : muted(), fill);
-        videodisplay.setCursor(27, y + 9);
+        uint32_t fill = selected ? selectedPanel() : panel();
+        videodisplay.fillRect(16, y, SCREEN_WIDTH - 32, 25, fill);
+        videodisplay.rect(16, y, SCREEN_WIDTH - 32, 25, selected ? accent() : border());
+        videodisplay.fillRect(22, y + 4, 21, 17, selected ? accent() : background());
+        videodisplay.setFont(Font6x8);
+        videodisplay.setTextColor(selected ? panel() : muted(), selected ? accent() : background());
+        videodisplay.setCursor(29, y + 9);
         videodisplay.print(i + 1);
-        videodisplay.setCursor(47, y + 9);
+        videodisplay.setFont(Font8x8);
+        videodisplay.setTextColor(ink(), fill);
+        videodisplay.setCursor(53, y + 8);
         videodisplay.print(MENU_ITEMS[i]);
-        if (selected) { videodisplay.setCursor(339, y + 9); videodisplay.print(">"); }
+        if (selected) { videodisplay.setCursor(337, y + 8); videodisplay.print(">"); }
     }
     drawStatus();
 }
 
 static void drawBleDevices() {
     if (!videoReady) return;
-    drawFrame("Bluetooth Keyboard");
-    printAt(18, 52, "Select a keyboard from the controller scan", muted());
+    drawFrame("Connect a keyboard");
+    videodisplay.setFont(Font6x8);
+    printAt(18, 68, "BLUETOOTH  /  DISCOVERED DEVICES", muted(), background());
     for (int i = 0; i < 5; ++i) {
-        int y = 71 + i * 30;
-        uint32_t fill = i == selectedItem ? videodisplay.RGB(25, 76, 79) : panel();
+        int y = 80 + i * 29;
+        bool selected = i == selectedItem;
+        uint32_t fill = selected ? selectedPanel() : panel();
         videodisplay.fillRect(16, y, SCREEN_WIDTH - 32, 25, fill);
-        if (i == selectedItem) videodisplay.fillRect(16, y, 4, 25, accent());
-        videodisplay.setTextColor(i == selectedItem ? white() : muted(), fill);
-        videodisplay.setCursor(24, y + 8);
-        String label = bleDevices[i].length() ? bleDevices[i] : String("Device ") + (i + 1) + " - scanning";
-        videodisplay.print(label.substring(0, 54).c_str());
+        videodisplay.rect(16, y, SCREEN_WIDTH - 32, 25, selected ? accent() : border());
+        videodisplay.fillRect(22, y + 4, 21, 17, selected ? accent() : background());
+        videodisplay.setFont(Font6x8);
+        videodisplay.setTextColor(selected ? panel() : muted(), selected ? accent() : background());
+        videodisplay.setCursor(29, y + 9);
+        videodisplay.print(i + 1);
+        videodisplay.setFont(Font8x8);
+        videodisplay.setTextColor(ink(), fill);
+        videodisplay.setCursor(53, y + 8);
+        String label = bleDevices[i].length() ? bleDevices[i] : String("Waiting for device ") + (i + 1);
+        videodisplay.print(label.substring(0, 34).c_str());
     }
     drawStatus();
 }
 
 static void drawDiagnostics() {
     if (!videoReady) return;
-    drawFrame("System Diagnostics");
-    videodisplay.fillRect(16, 54, SCREEN_WIDTH - 32, 163, panel());
+    drawFrame("System diagnostics");
+    videodisplay.setFont(Font6x8);
+    printAt(18, 68, "HARDWARE  /  STORAGE  /  FIRMWARE", muted(), background());
+    videodisplay.fillRect(16, 80, SCREEN_WIDTH - 32, 145, panel());
+    videodisplay.rect(16, 80, SCREEN_WIDTH - 32, 145, border());
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *next = esp_ota_get_next_update_partition(nullptr);
-    printAt(18, 55, String("Free heap: ") + ESP.getFreeHeap() + " bytes", white());
-    printAt(18, 75, String("Flash: ") + ESP.getFlashChipSize() + " bytes", white());
-    printAt(18, 95, String("Chip revision: ") + ESP.getChipRevision(), white());
-    printAt(18, 115, String("SDK: ") + ESP.getSdkVersion(), white());
-    printAt(18, 135, String("Running OTA: ") + (running ? running->label : "unknown"), white());
-    printAt(18, 155, String("Next OTA: ") + (next ? next->label : "unavailable"), white());
-    printAt(18, 175, String("SPIFFS: ") + (spiffsReady ? "ready" : "unavailable"), white());
-    printAt(18, 195, "Images: /System on SD card", accent());
+    const String labels[] = {"FREE HEAP", "FLASH SIZE", "CHIP REVISION", "SDK VERSION", "RUNNING OTA", "NEXT OTA", "SPIFFS"};
+    const String values[] = {
+        String(ESP.getFreeHeap()) + " bytes",
+        String(ESP.getFlashChipSize()) + " bytes",
+        String(ESP.getChipRevision()),
+        String(ESP.getSdkVersion()),
+        running ? String(running->label) : "unknown",
+        next ? String(next->label) : "unavailable",
+        spiffsReady ? "ready" : "unavailable"
+    };
+    for (int i = 0; i < 7; ++i) {
+        int y = 87 + i * 19;
+        if (i > 0) videodisplay.fillRect(25, y - 5, 326, 1, border());
+        printAt(27, y, labels[i], muted(), panel());
+        printAt(153, y, values[i].substring(0, 32), ink(), panel());
+    }
     drawStatus();
 }
 
@@ -288,15 +324,15 @@ static void handleMouse(const String &line) {
     int x = 0, y = 0, buttons = 0;
     if (sscanf(line.c_str(), "MOUSE %d %d %d", &x, &y, &buttons) != 3) return;
     bool down = (buttons & 1) != 0;
-    if (currentScreen == HOME && x >= 16 && x < SCREEN_WIDTH - 16 && y >= 69 && y < 220) {
-        int item = (y - 69) / 31;
-        if (item >= 0 && item < 5 && y < 69 + item * 31 + 27) {
+    if (currentScreen == HOME && x >= 16 && x < SCREEN_WIDTH - 16 && y >= 80 && y < 221) {
+        int item = (y - 80) / 29;
+        if (item >= 0 && item < 5 && y < 80 + item * 29 + 25) {
             if (item != selectedItem) { selectedItem = item; drawMenu(); }
             if (down && !mouseWasDown) selectCurrentItem();
         }
-    } else if (currentScreen == BLE_DEVICES && x >= 16 && x < SCREEN_WIDTH - 16 && y >= 71 && y < 216) {
-        int item = (y - 71) / 30;
-        if (item >= 0 && item < 5 && y < 71 + item * 30 + 25) {
+    } else if (currentScreen == BLE_DEVICES && x >= 16 && x < SCREEN_WIDTH - 16 && y >= 80 && y < 221) {
+        int item = (y - 80) / 29;
+        if (item >= 0 && item < 5 && y < 80 + item * 29 + 25) {
             if (item != selectedItem) { selectedItem = item; drawBleDevices(); }
             if (down && !mouseWasDown) selectCurrentItem();
         }
