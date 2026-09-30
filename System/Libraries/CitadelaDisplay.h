@@ -79,6 +79,11 @@ class CitCompositeColorDAC : public CompositeColorDAC {
         return videoMemoryAllocated;
     }
 
+#ifdef CITADELA_DISPLAY_STOCK_BITLUNI
+    // Stock bitluni has no video calibration state to include in cache keys.
+    uint32_t calibrationSignature() const { return 0; }
+#endif
+
     void bindSerialDisplay(SerialDisplay &recorder) { serialDisplay = &recorder; }
 
     void serialDisplayBeginScene() {
@@ -90,9 +95,13 @@ class CitCompositeColorDAC : public CompositeColorDAC {
                 snprintf(colors + j * 8, 9, "%08lX", (unsigned long)buftocol(i + j));
             serialDisplay->command("P %d %s", i, colors);
         }
+// The stock bitluni release lacks the project's PAL4x palette extensions.
+// Standard PAL apps can omit these tables; the bootloader never records a scene.
+#ifndef CITADELA_DISPLAY_STOCK_BITLUNI
         serialDisplay->table(3, indexedRedLUT);
         serialDisplay->table(4, indexedGreenLUT);
         serialDisplay->table(5, indexedBlueLUT);
+#endif
     }
 
     struct MirrorSilence {
@@ -209,40 +218,48 @@ class CitCompositeColorDAC : public CompositeColorDAC {
     void fillRect(int x, int y, int w, int h, Color color) {
         if (recording()) serialDisplay->command("FILL %d %d %d %d %08lX", x, y, w, h, mirrorColor(color));
         RecordScope scope(*this);
+#ifndef CITADELA_DISPLAY_STOCK_BITLUNI
         if (this->usesPAL4xEncoder()) {
             Base::fillRect(x, y, w, h, polarityColor(color));
             return;
         }
+#endif
         GraphicsX8CA8Swapped::fillRect(x, y, w, h, color);
     }
 
     void xLine(int x0, int x1, int y, Color color) override {
         if (recording()) serialDisplay->command("FILL %d %d %d 1 %08lX", min(x0, x1), y, abs(x1 - x0), mirrorColor(color));
         RecordScope scope(*this);
+#ifndef CITADELA_DISPLAY_STOCK_BITLUNI
         if (this->usesPAL4xEncoder()) {
             Base::xLine(x0, x1, y, polarityColor(color));
             return;
         }
+#endif
         GraphicsX8CA8Swapped::xLine(x0, x1, y, color);
     }
 
     void rect(int x, int y, int w, int h, Color color) {
         if (recording()) serialDisplay->command("RECT %d %d %d %d %08lX", x, y, w, h, mirrorColor(color));
         RecordScope scope(*this);
+#ifndef CITADELA_DISPLAY_STOCK_BITLUNI
         if (this->usesPAL4xEncoder()) {
             Base::rect(x, y, w, h, polarityColor(color));
             return;
         }
+#endif
         GraphicsX8CA8Swapped::rect(x, y, w, h, color);
     }
 
     void clear(Color color = 0) override {
         if (recording()) serialDisplay->command("FILL 0 0 %d %d %08lX", xres, yres, mirrorColor(color));
         RecordScope scope(*this);
+#ifndef CITADELA_DISPLAY_STOCK_BITLUNI
         if (this->usesPAL4xEncoder()) {
             Base::fillRect(0, 0, this->xres, this->yres, polarityColor(color));
             return;
         }
+#endif
         GraphicsX8CA8Swapped::clear(color);
     }
 
@@ -317,11 +334,14 @@ class CitCompositeColorDAC : public CompositeColorDAC {
 
     uint8_t rawPixelBrightness(RawPixel raw) const {
         uint8_t stored = rawPixelSignal(raw);
+#ifndef CITADELA_DISPLAY_STOCK_BITLUNI
         if (!this->usesPAL4xEncoder()) {
+#endif
             int span = this->levelWhite - this->levelBlack;
             if (span == 0) return stored;
             int brightness = ((int)stored - this->levelBlack) * 255 / span;
             return (uint8_t)constrain(brightness, 0, 255);
+#ifndef CITADELA_DISPLAY_STOCK_BITLUNI
         }
 
         Color color = this->buftocol(stored);
@@ -329,6 +349,7 @@ class CitCompositeColorDAC : public CompositeColorDAC {
         uint32_t g = (color >> 8) & 0xff;
         uint32_t b = (color >> 16) & 0xff;
         return (uint8_t)((19595UL * r + 38470UL * g + 7471UL * b + 0x8000UL) >> 16);
+#endif
     }
 
   private:

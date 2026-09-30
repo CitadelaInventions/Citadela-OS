@@ -216,7 +216,9 @@ class ProtocolClient:
         raise UploadError("Open Configuration > UART Upload on Citadela first.")
 
     def begin(self, target: str, app_name: str) -> None:
-        begin = "CITUART BEGIN KERNEL" if target == "kernel" else f"CITUART BEGIN APP {app_name}"
+        begin = ("CITUART BEGIN KERNEL" if target == "kernel" else
+                 "CITUART BEGIN BOOTLOADER" if target == "bootloader" else
+                 f"CITUART BEGIN APP {app_name}")
         self.send_line(begin)
         self.wait_for("CITUART ACCEPTED", 5)
         baud_line = self.wait_for("CITUART BAUD ", 20)
@@ -282,10 +284,10 @@ class ProtocolClient:
         self.send_line("CITUART COMMIT")
         self.wait_for("CITUART COMMITTED ", 20)
         done = self.wait_for("CITUART DONE ", 15)
-        expected = "KERNEL" if target == "kernel" else "APP"
+        expected = target.upper() if target != "app" else "APP"
         if f"CITUART DONE {expected} " not in done:
             raise UploadError(f"Unexpected completion response: {done}")
-        self.progress(100, f"{app_name if target == 'app' else 'Kernel'} uploaded")
+        self.progress(100, f"{app_name if target == 'app' else target.title()} uploaded")
 
 
 def upload_package(
@@ -396,6 +398,7 @@ class UploaderWindow:
         target_frame.grid(row=2, column=1, sticky="w")
         ttk.Radiobutton(target_frame, text="Application", variable=self.target, value="app", command=self._target_changed).pack(side="left")
         ttk.Radiobutton(target_frame, text="Kernel", variable=self.target, value="kernel", command=self._target_changed).pack(side="left", padx=(18, 0))
+        ttk.Radiobutton(target_frame, text="Bootloader", variable=self.target, value="bootloader", command=self._target_changed).pack(side="left", padx=(18, 0))
 
         ttk.Label(panel, text="App name", style="Body.TLabel").grid(row=3, column=0, sticky="w", pady=(12, 0), padx=(0, 12))
         self.name_entry = ttk.Entry(panel, textvariable=self.app_name)
@@ -457,13 +460,15 @@ class UploaderWindow:
         self.app_name.set(path.stem)
         if path.stem.casefold() == "kernel":
             self.target.set("kernel")
+        elif path.stem.casefold() == "bootloader":
+            self.target.set("bootloader")
         else:
             self.target.set("app")
         self._target_changed()
         self.status.set(f"Ready to compile {path.name}")
 
     def _target_changed(self) -> None:
-        self.name_entry.configure(state="disabled" if self.target.get() == "kernel" else "normal")
+        self.name_entry.configure(state="normal" if self.target.get() == "app" else "disabled")
 
     def refresh_ports(self) -> None:
         ports = available_ports()
@@ -553,7 +558,7 @@ class UploaderWindow:
                 self._log(f"Binary ready: {binary.stat().st_size:,} bytes")
                 self._progress(24, "Connecting to kernel ESP")
                 upload_package(port, target, app_name, binary, source, self._log, self._progress)
-            target_name = app_name if target == "app" else "Kernel"
+            target_name = app_name if target == "app" else target.title()
             self._post("done", f"{target_name} package was installed on the SD card.")
         except Exception as exc:
             self._log(f"ERROR: {exc}")

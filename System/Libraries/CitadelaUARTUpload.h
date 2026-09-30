@@ -7,7 +7,8 @@ namespace Citadela {
 
 enum class UARTUploadTarget : uint8_t {
     App,
-    Kernel
+    Kernel,
+    Bootloader
 };
 
 struct UARTUploadRequest {
@@ -45,6 +46,11 @@ class UARTUploadReceiver {
             request.appName = "kernel";
             return true;
         }
+        if (payload.equalsIgnoreCase("BOOTLOADER")) {
+            request.target = UARTUploadTarget::Bootloader;
+            request.appName = "bootloader";
+            return true;
+        }
 
         if (!payload.startsWith("APP ")) {
             error = "BAD_TARGET";
@@ -77,7 +83,7 @@ class UARTUploadReceiver {
         }
 
         uart.print("CITUART READY ");
-        uart.print(request.target == UARTUploadTarget::Kernel ? "KERNEL" : "APP");
+        uart.print(targetName(request.target));
         uart.print(' ');
         uart.println(request.appName);
 
@@ -121,13 +127,19 @@ class UARTUploadReceiver {
         result.ok = true;
         if (progress) progress(100, "Upload complete");
         uart.print("CITUART COMMITTED ");
-        uart.print(request.target == UARTUploadTarget::Kernel ? "KERNEL" : "APP");
+        uart.print(targetName(request.target));
         uart.print(' ');
         uart.println(request.appName);
         return result;
     }
 
   private:
+    static const char *targetName(UARTUploadTarget target) {
+        if (target == UARTUploadTarget::Kernel) return "KERNEL";
+        if (target == UARTUploadTarget::Bootloader) return "BOOTLOADER";
+        return "APP";
+    }
+
     static bool safeAppName(const String &name) {
         if (name.length() == 0 || name.length() > 40) return false;
         for (size_t i = 0; i < name.length(); ++i) {
@@ -364,7 +376,7 @@ class UARTUploadReceiver {
             binaryTemp = String("/apps/.") + request.appName + ".bin.uartpart";
             sourceTemp = String("/apps/AppCodes/") + request.appName + "/." + request.appName + ".ino.uartpart";
             mirrorTemp = "";
-        } else {
+        } else if (request.target == UARTUploadTarget::Kernel) {
             if (!ensureDirectory(storage, "/System") ||
                 !ensureDirectory(storage, "/System/kernel")) {
                 error = "KERNEL_DIRECTORY_FAILED";
@@ -373,6 +385,15 @@ class UARTUploadReceiver {
             binaryTemp = "/System/.kernel.bin.uartpart";
             sourceTemp = "/System/kernel/.kernel.ino.uartpart";
             mirrorTemp = "/System/kernel/.kernel.bin.uartpart";
+        } else {
+            if (!ensureDirectory(storage, "/System") ||
+                !ensureDirectory(storage, "/System/bootloader")) {
+                error = "BOOTLOADER_DIRECTORY_FAILED";
+                return false;
+            }
+            binaryTemp = "/System/.bootloader.bin.uartpart";
+            sourceTemp = "/System/bootloader/.bootloader.ino.uartpart";
+            mirrorTemp = "";
         }
         cleanupTemps(storage, binaryTemp, sourceTemp, mirrorTemp);
         return true;
@@ -438,7 +459,7 @@ class UARTUploadReceiver {
             temps[1] = sourceTemp;
             finals[1] = String("/apps/AppCodes/") + request.appName + "/" + request.appName + ".ino";
             count = 2;
-        } else {
+        } else if (request.target == UARTUploadTarget::Kernel) {
             if (!copyFile(storage, binaryTemp, mirrorTemp)) {
                 error = "KERNEL_MIRROR_FAILED";
                 return false;
@@ -450,6 +471,12 @@ class UARTUploadReceiver {
             temps[2] = sourceTemp;
             finals[2] = "/System/kernel/kernel.ino";
             count = 3;
+        } else {
+            temps[0] = binaryTemp;
+            finals[0] = "/System/bootloader.bin";
+            temps[1] = sourceTemp;
+            finals[1] = "/System/bootloader/bootloader.ino";
+            count = 2;
         }
 
         String backups[3];

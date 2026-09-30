@@ -4902,12 +4902,14 @@ static void drawUARTUploadPanel() {
     videodisplay.setCursor(x + 60, y + 51);
     videodisplay.print("Waiting for uploader...");
 
-    videodisplay.fillRect(x + 12, y + 73, w - 24, 34, videodisplay.RGB(17, 24, 29));
+    videodisplay.fillRect(x + 12, y + 73, w - 24, 48, videodisplay.RGB(17, 24, 29));
     videodisplay.setTextColor(videodisplay.RGB(107, 230, 214), videodisplay.RGB(17, 24, 29));
     videodisplay.setCursor(x + 20, y + 80);
     videodisplay.print("APP: .bin + .ino");
     videodisplay.setCursor(x + 20, y + 94);
     videodisplay.print("KERNEL: system image + source");
+    videodisplay.setCursor(x + 20, y + 108);
+    videodisplay.print("BOOTLOADER: system app + source");
 
     videodisplay.fillRect(x + w - 68, y + h - 25, 58, 17, action);
     videodisplay.rect(x + w - 68, y + h - 25, 58, 17, dim);
@@ -5043,15 +5045,10 @@ static void handleUARTUploadBeginCommand(const String &command) {
     uartUploadInProgress = true;
     wallpaperFetchInProgress = true;
     Serial.println("CITUART ACCEPTED");
-    if (!prepareWallpaperFetchVideo()) {
-        wallpaperFetchInProgress = false;
-        uartUploadInProgress = false;
-        uartUploadStatus = "Controller video was not ready";
-        Serial.println("CITUART ERROR CONTROLLER_NOT_READY");
-        KernelCursorDrawGuard cursorGuard;
-        drawUARTUploadPanel();
-        return;
-    }
+    // USB UART remains usable when the separate video controller is absent.
+    // Release the local framebuffer for SD access and restore it afterwards.
+    bool controllerVideoReady = prepareWallpaperFetchVideo();
+    if (!controllerVideoReady) Serial.println("CITUART NOTICE CONTROLLER_VIDEO_UNAVAILABLE");
 
     kernelCursorRestore();
     wallpaperFetchCursorX = CitaCursor.X();
@@ -5061,7 +5058,7 @@ static void handleUARTUploadBeginCommand(const String &command) {
     videodisplay.releaseVideoMemory();
     initVd = false;
     pinMode(25, INPUT_PULLDOWN);
-    bootVideoSerial.fetchFilesStart();
+    if (controllerVideoReady) bootVideoSerial.fetchFilesStart();
     fallbackVideoProgress(0, "UART package upload");
     delay(60);
 
@@ -5112,7 +5109,7 @@ static void handleUARTUploadBeginCommand(const String &command) {
         cacheReady = updateUploadedAppCache(request.appName);
         if (!cacheReady) Serial.println("CITUART NOTICE CACHE_REFRESH_PENDING");
     }
-    if (result.ok && request.target == Citadela::UARTUploadTarget::Kernel) {
+    if (result.ok && request.target != Citadela::UARTUploadTarget::App) {
         markUARTFileTreeForRefresh();
     }
     if (!result.ok && request.target == Citadela::UARTUploadTarget::Kernel && !markerWasPresent) {
@@ -5121,7 +5118,8 @@ static void handleUARTUploadBeginCommand(const String &command) {
 
     if (result.ok) {
         Serial.print("CITUART DONE ");
-        Serial.print(request.target == Citadela::UARTUploadTarget::Kernel ? "KERNEL" : "APP");
+        Serial.print(request.target == Citadela::UARTUploadTarget::Kernel ? "KERNEL" :
+                     request.target == Citadela::UARTUploadTarget::Bootloader ? "BOOTLOADER" : "APP");
         Serial.print(' ');
         Serial.print(request.appName);
         Serial.print(' ');
@@ -5130,7 +5128,9 @@ static void handleUARTUploadBeginCommand(const String &command) {
         Serial.println(result.sourceBytes);
         uartUploadStatus = request.target == Citadela::UARTUploadTarget::Kernel
             ? "Kernel package updated"
-            : (cacheReady ? String("Uploaded ") + request.appName : String("Uploaded ") + request.appName + " (rescan pending)");
+            : request.target == Citadela::UARTUploadTarget::Bootloader
+                ? "Bootloader package updated"
+                : (cacheReady ? String("Uploaded ") + request.appName : String("Uploaded ") + request.appName + " (rescan pending)");
     } else {
         uartUploadStatus = String("Upload failed: ") + result.error;
     }
@@ -5145,36 +5145,14 @@ static void handleUARTUploadBeginCommand(const String &command) {
     bool videoReady = resumeKernelVideoAfterWallpaperFetch();
     restoreKernelUIAfterUARTUpload(videoReady);
 }
-void cleanFlashPartitions() {
-    const esp_partition_t* partition;
-    esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, NULL);
- 
-    int partitionIndex = 0;
- 
-    while (it != NULL) {
-        partition = esp_partition_get(it);
-        if (partitionIndex % 2 == 1) {
-            Serial.printf("Erasing partition: %s, Address: 0x%08x, Size: %d bytes\n",
-                          partition->label, partition->address, partition->size);
-            esp_err_t err = esp_partition_erase_range(partition, 0, partition->size);
-            if (err != ESP_OK) {
-                Serial.printf("Failed to erase partition %s: %s\n", partition->label, esp_err_to_name(err));
-            } else {
-                Serial.printf("Partition %s erased successfully.\n", partition->label);
-            }
-        }
-        partitionIndex++;
-        it = esp_partition_next(it);
-    }
-    esp_partition_iterator_release(it);
-}
 void handleBootloaderFlash() {
     bootVideoStart("Flashing bootloader");
+    String imagePath = appString.length() ? appString : "/System/bootloader.bin";
     boolRes = "false";
     boolUpdate();
     appString = "";
     reRememberApp();
-    File bootloaderFile = SD.open("/System/bootloader.bin");
+    File bootloaderFile = SD.open(imagePath.c_str());
     if (!bootloaderFile) {Serial.println("file not found!");return;}
     size_t bootloaderSize = bootloaderFile.size();
     Serial.printf("size: %d bytes\n", bootloaderSize);
@@ -8564,29 +8542,25 @@ void setup() {
         case 2: // "trueBootloader"
             stopBootTone();
             appString = "/System/bootloader.bin";
-            bootVideoProgress(8, "Erasing flash");
-            cleanFlashPartitions();
+            bootVideoProgress(8, "Preparing bootloader");
             handleBootloaderFlash();
             break;
         case 3: // "trueWifiEditor"
             stopBootTone();
             appString = "/System/WifiEditor.bin";
-            bootVideoProgress(8, "Erasing flash");
-            cleanFlashPartitions();
+            bootVideoProgress(8, "Preparing WiFi editor");
             handleBootloaderFlash();
             break;
         case 4: // "trueCprog"
             stopBootTone();
             appString = "/apps/CProg.bin";
-            bootVideoProgress(8, "Erasing flash");
-            cleanFlashPartitions();
+            bootVideoProgress(8, "Preparing CProg");
             handleCProgFlash();
             break;
         case 5: // "trueAPPFlash"
             stopBootTone();
             appString = boolRes;
-            bootVideoProgress(8, "Erasing flash");
-            cleanFlashPartitions();
+            bootVideoProgress(8, "Preparing application");
             flashApp();
             break;
         case 7: // "pendingConfiguration"

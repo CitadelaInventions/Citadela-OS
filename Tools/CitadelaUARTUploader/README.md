@@ -19,6 +19,14 @@ Kernel packages replace:
 - `/System/kernel/kernel.bin`
 - `/System/kernel/kernel.ino`
 
+Bootloader packages replace:
+
+- `/System/bootloader.bin`
+- `/System/bootloader/bootloader.ino`
+
+The bootloader package is an ESP32 OTA application image. It does not replace
+the ESP32 second-stage bootloader at flash offset `0x1000`.
+
 Every file is written to a temporary path and checked with CRC32 before the final files are replaced. Existing files are restored if a final rename fails.
 
 Install optional drag-and-drop support with:
