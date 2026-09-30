@@ -5,6 +5,7 @@
 #include <SPIFFS.h>
 #include <Update.h>
 #include <esp_heap_caps.h>
+#include <string.h>
 #include "../../../System/Libraries/CitadelaDisplay.h"
 #include "../../../System/Libraries/CitadelaSerialCommands.h"
 #include "../../../System/Libraries/CitadelaStorage.h"
@@ -36,14 +37,85 @@ static float viewHeight = 2.35f;
 static int nextRow = 0;
 static uint32_t renderStarted = 0;
 static Scene scene = FRACTAL;
+static Scene displayedScene = SCENE_COUNT;
 static bool frameComplete = false;
 static float objectYaw = 0.45f;
 static float objectPitch = -0.25f;
 static float objectZoom = 1.0f;
+static float displayedCenterReal = 0.0f;
+static float displayedCenterImaginary = 0.0f;
+static float displayedViewHeight = 0.0f;
+static float displayedYaw = 0.0f;
+static float displayedPitch = 0.0f;
+static float displayedZoom = 0.0f;
+static bool knotCanvasValid = false;
+static bool captionReusable = false;
+static bool knotInputDirty = false;
+static CMonoArt3D::IncrementalStats knotStats = {false, 0, 0};
+static bool ridgesReady = false;
+static bool mouseSeen = false;
+static bool mouseLeftDown = false;
+static bool cursorShown = false;
+static int mouseControllerX = 188;
+static int mouseControllerY = 142;
+static int cursorX = WIDTH / 2;
+static int cursorY = HEIGHT / 2;
+static constexpr int CURSOR_RADIUS = 4;
+static constexpr int CURSOR_SCALE_X = 4;
+static constexpr int CURSOR_DIAMETER = CURSOR_RADIUS * 2 + 1;
+static uint8_t cursorUnder[CURSOR_DIAMETER * CURSOR_DIAMETER * CURSOR_SCALE_X];
+static uint32_t crcTable[256];
 static int16_t farRidge[WIDTH];
 static int16_t nearRidge[WIDTH];
 static int16_t cloudLineA[WIDTH];
 static int16_t cloudLineB[WIDTH];
+
+// The system cursor is a small contrasting ring. Save the exact background
+// bits so mouse motion never alters the scene or its reported framebuffer CRC.
+static bool cursorPoint(int dx, int dy) {
+    const int distance2 = dx * dx + dy * dy;
+    return distance2 >= 5 && distance2 <= 18;
+}
+
+static void restoreCursor() {
+    if (!cursorShown || !videoReady) return;
+    for (int dy = -CURSOR_RADIUS; dy <= CURSOR_RADIUS; ++dy) {
+        const int py = cursorY + dy;
+        if ((unsigned)py >= HEIGHT) continue;
+        for (int dx = -CURSOR_RADIUS; dx <= CURSOR_RADIUS; ++dx) {
+            if (!cursorPoint(dx, dy)) continue;
+            for (int sub = 0; sub < CURSOR_SCALE_X; ++sub) {
+                const int px = cursorX + dx * CURSOR_SCALE_X + sub;
+                if ((unsigned)px >= WIDTH) continue;
+                const int offset = ((dy + CURSOR_RADIUS) * CURSOR_DIAMETER +
+                                    dx + CURSOR_RADIUS) * CURSOR_SCALE_X + sub;
+                video.mono1Pixel(px, py, cursorUnder[offset] != 0);
+            }
+        }
+    }
+    cursorShown = false;
+}
+
+static void drawCursor() {
+    if (!videoReady || !mouseSeen || !frameComplete || cursorShown) return;
+    for (int dy = -CURSOR_RADIUS; dy <= CURSOR_RADIUS; ++dy) {
+        const int py = cursorY + dy;
+        if ((unsigned)py >= HEIGHT) continue;
+        for (int dx = -CURSOR_RADIUS; dx <= CURSOR_RADIUS; ++dx) {
+            if (!cursorPoint(dx, dy)) continue;
+            for (int sub = 0; sub < CURSOR_SCALE_X; ++sub) {
+                const int px = cursorX + dx * CURSOR_SCALE_X + sub;
+                if ((unsigned)px >= WIDTH) continue;
+                const int offset = ((dy + CURSOR_RADIUS) * CURSOR_DIAMETER +
+                                    dx + CURSOR_RADIUS) * CURSOR_SCALE_X + sub;
+                const bool under = video.mono1PixelAt(px, py);
+                cursorUnder[offset] = under;
+                video.mono1Pixel(px, py, !under);
+            }
+        }
+    }
+    cursorShown = true;
+}
 
 static bool writeBootState(const char *state) {
     if (!spiffsReady) return false;
@@ -124,6 +196,7 @@ static void returnToKernel() {
         Serial.println("MONO EXIT FAILED: boot marker unavailable");
         return;
     }
+    restoreCursor();
     controllerVideo.prepare("Returning to Citadela OS", 0);
     if (videoReady) video.releaseVideoMemory();
     videoReady = false;
@@ -163,17 +236,42 @@ static void prepareRidges() {
 
 static void beginRender() {
     if (!videoReady) return;
-    video.mono1Clear(false);
+    if (frameComplete && displayedScene == scene) {
+        const bool unchanged = scene == FRACTAL ?
+            centerReal == displayedCenterReal &&
+            centerImaginary == displayedCenterImaginary &&
+            viewHeight == displayedViewHeight :
+            scene == KNOT ?
+            objectYaw == displayedYaw &&
+            objectPitch == displayedPitch &&
+            objectZoom == displayedZoom : true;
+        if (unchanged) {
+            drawCursor();
+            Serial.printf("MONO SKIP mode=%u unchanged\n", (unsigned)scene);
+            return;
+        }
+    }
+    restoreCursor();
+    captionReusable = scene == KNOT && knotCanvasValid;
+    if (!captionReusable) video.mono1Clear(false);
+    if (scene != KNOT) knotCanvasValid = false;
     nextRow = 0;
     renderStarted = millis();
     frameComplete = false;
-    if (scene == ETCHING) prepareRidges();
+    if (scene == ETCHING && !ridgesReady) {
+        prepareRidges();
+        ridgesReady = true;
+    }
     Serial.printf("MONO MODE %u %s\n", (unsigned)scene, SCENE_NAMES[scene]);
 }
 
 static void renderMandelbrotRow(int y) {
     uint8_t *row = video.mono1Row(y);
     if (!row) return;
+    if (centerImaginary == 0.0f && y >= HEIGHT / 2) {
+        memcpy(row, video.mono1Row(HEIGHT - 1 - y), video.mono1Stride());
+        return;
+    }
     const float imaginary = centerImaginary +
         ((float)y + 0.5f - HEIGHT * 0.5f) * viewHeight / HEIGHT;
     const float step = viewHeight * (4.0f / 3.0f) / WIDTH;
@@ -380,6 +478,15 @@ static void drawCaption() {
                     CMonoFont::Small, true, 1, 3);
 }
 
+static void prepareCRCTable() {
+    for (uint32_t index = 0; index < 256; ++index) {
+        uint32_t value = index;
+        for (int bit = 0; bit < 8; ++bit)
+            value = (value >> 1) ^ ((value & 1U) ? 0xEDB88320U : 0U);
+        crcTable[index] = value;
+    }
+}
+
 static void reportFrame() {
     uint32_t crc = 0xFFFFFFFFU;
     uint32_t whitePixels = 0;
@@ -389,16 +496,27 @@ static void reportFrame() {
         for (int byte = 0; byte < stride; ++byte) {
             const uint8_t value = row[byte];
             whitePixels += __builtin_popcount((unsigned)value);
-            crc ^= value;
-            for (int bit = 0; bit < 8; ++bit)
-                crc = (crc >> 1) ^ ((crc & 1U) ? 0xEDB88320U : 0U);
+            crc = (crc >> 8) ^ crcTable[(crc ^ value) & 0xffU];
         }
     }
+    displayedScene = scene;
+    displayedCenterReal = centerReal;
+    displayedCenterImaginary = centerImaginary;
+    displayedViewHeight = viewHeight;
+    displayedYaw = objectYaw;
+    displayedPitch = objectPitch;
+    displayedZoom = objectZoom;
     frameComplete = true;
     Serial.printf("MONO FRAME mode=%u name=%s complete in %lu ms crc32=%08lX white=%lu\n",
         (unsigned)scene, SCENE_NAMES[scene],
         (unsigned long)(millis() - renderStarted),
         (unsigned long)(crc ^ 0xFFFFFFFFU), (unsigned long)whitePixels);
+    if (scene == KNOT)
+        Serial.printf("MONO DELTA ok=%u changedBytes=%lu changedPixels=%lu\n",
+            knotStats.ok ? 1U : 0U,
+            (unsigned long)knotStats.changedBytes,
+            (unsigned long)knotStats.changedPixels);
+    drawCursor();
 }
 
 static void dumpFrame() {
@@ -406,6 +524,7 @@ static void dumpFrame() {
         Serial.println("MONO DUMP WAIT: frame incomplete");
         return;
     }
+    restoreCursor();
     const int stride = video.mono1Stride();
     const int bytes = stride * HEIGHT;
     Serial.printf("MONO DUMP START %d %d %d %d\n", WIDTH, HEIGHT, stride, bytes);
@@ -413,12 +532,42 @@ static void dumpFrame() {
         Serial.write(video.mono1Row(y), stride);
     Serial.print("\nMONO DUMP END\n");
     Serial.flush();
+    drawCursor();
+}
+
+static bool handleMouseReport(const String &line) {
+    if (!line.startsWith("MOUSE ")) return false;
+    int x = mouseControllerX, y = mouseControllerY;
+    int buttons = 0, dx = 0, dy = 0, wheel = 0;
+    if (sscanf(line.c_str(), "MOUSE %d %d %d %d %d %d",
+               &x, &y, &buttons, &dx, &dy, &wheel) < 3) return true;
+    x = constrain(x, 0, 375);
+    y = constrain(y, 0, 284);
+    const int movedX = x - mouseControllerX;
+    const int movedY = y - mouseControllerY;
+    const bool leftDown = (buttons & 1) != 0;
+    restoreCursor();
+    mouseSeen = true;
+    mouseControllerX = x;
+    mouseControllerY = y;
+    cursorX = x * (WIDTH - 1) / 375;
+    cursorY = y * (HEIGHT - 1) / 284;
+    if (scene == KNOT && leftDown && mouseLeftDown &&
+        (movedX != 0 || movedY != 0)) {
+        objectYaw += movedX * 0.012f;
+        objectPitch = constrain(objectPitch + movedY * 0.012f, -1.4f, 1.4f);
+        knotInputDirty = true;
+    }
+    mouseLeftDown = leftDown;
+    if (!knotInputDirty) drawCursor();
+    return true;
 }
 
 static void handleInput(String line, bool fromUSB) {
     line.trim();
     if (line == "Escape" || line == "esc") { returnToKernel(); return; }
     if (!videoReady) return;
+    if (handleMouseReport(line)) return;
     if (line == "MONO INFO") {
         Serial.printf("MONO 1BIT %dx%d stride=%d frame=%d mode=%u name=%s free=%u DMA=%u isrMax=%lu budget=%lu over=%lu lines=%lu\n",
             video.xres, video.yres, video.mono1Stride(),
@@ -434,6 +583,7 @@ static void handleInput(String line, bool fromUSB) {
     if (line == "MONO DUMP" && fromUSB) { dumpFrame(); return; }
     if (line == "Tab" || line == "tab" || line == "TAB") {
         scene = (Scene)(((unsigned)scene + 1U) % SCENE_COUNT);
+        knotInputDirty = false;
         beginRender();
         return;
     }
@@ -470,12 +620,14 @@ static void handleInput(String line, bool fromUSB) {
         objectPitch = -0.25f;
         objectZoom = 1.0f;
     } else return;
+    knotInputDirty = false;
     beginRender();
 }
 
 void setup() {
     Serial.begin(115200);
     Serial1.begin(256000, SERIAL_8N1, 16, 17);
+    prepareCRCTable();
     spiffsReady = SPIFFS.begin(false);
     if (readBootState() == "trueKernel") {
         writeBootState("false");
@@ -503,15 +655,27 @@ void loop() {
     String line;
     while (controllerInput.poll(Serial1, line)) handleInput(line, false);
     while (usbInput.poll(Serial, line)) handleInput(line, true);
+    if (knotInputDirty) {
+        knotInputDirty = false;
+        beginRender();
+    }
     if (videoReady && nextRow < HEIGHT) {
         if (scene == LETTERING) {
             drawLettering();
             nextRow = HEIGHT;
         } else if (scene == KNOT) {
-            CMonoArt3D::render([&](int x, int y, bool white) {
-                video.mono1Pixel(x, y, white);
-            }, WIDTH, TOP_BAR, FOOTER_TOP - 1,
-               objectYaw, objectPitch, objectZoom);
+            knotStats = CMonoArt3D::renderIncremental(
+                [&](int y) { return video.mono1Row(y); },
+                WIDTH, TOP_BAR, FOOTER_TOP - 1,
+                objectYaw, objectPitch, objectZoom);
+            if (!knotStats.ok) {
+                video.mono1FillRect(0, TOP_BAR, WIDTH,
+                                    FOOTER_TOP - TOP_BAR, false);
+                CMonoArt3D::render([&](int x, int y, bool white) {
+                    video.mono1Pixel(x, y, white);
+                }, WIDTH, TOP_BAR, FOOTER_TOP - 1,
+                   objectYaw, objectPitch, objectZoom);
+            }
             nextRow = HEIGHT;
         } else {
             switch (scene) {
@@ -523,9 +687,12 @@ void loop() {
         }
         if (nextRow == HEIGHT) {
             if (scene == ETCHING) drawObservatory();
-            drawCaption();
+            if (!captionReusable) drawCaption();
+            if (scene == KNOT) knotCanvasValid = true;
             reportFrame();
         }
+        yield();
+    } else {
+        delay(1);
     }
-    delay(1);
 }

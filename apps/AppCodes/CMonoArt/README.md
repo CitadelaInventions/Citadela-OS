@@ -5,6 +5,8 @@ Citadela composite DAC. TAB cycles through Mandelbrot contours, a clean UI
 type specimen with A–Z, a–z and 0–9, a detailed observatory etching, and an
 interactive projected 3D trefoil knot. Arrows pan the fractal or rotate the
 knot; + and - zoom; R resets; Escape returns to the kernel.
+The SerialController mouse cursor is visible in the app. Hold the left mouse
+button and drag in the knot scene to rotate horizontally and vertically.
 
 The PAL Mono1 Ultra7x mode is 1645 × 288. Its packed framebuffer uses 206
 bytes per row, 59,328 bytes total. Pixel 0 is black; pixel 1 is white. The
@@ -15,8 +17,15 @@ largest one-to-one horizontal mode that fits a complete scanline under the
 analog display and cable.
 
 The 3D scene uses projected, depth-sorted geometry and 1-bit ordered dithering
-instead of per-pixel ray marching. The Mandelbrot renderer skips points known
-to lie in its main cardioid or period-two bulb.
+instead of per-pixel ray marching. Its immutable knot samples are cached. Each
+new view is rasterized into a packed 45,938-byte canvas, then compared with the
+visible interior. Only bytes with changed final pixels are committed; an
+unchanged view writes no picture bytes. The cursor restores its saved background
+bits before a render or framebuffer dump. Mandelbrot skips points known to lie
+in its main cardioid or period-two bulb and mirrors rows when centered on the
+real axis. The observatory's static ridge coordinates are cached. Commands
+that leave the current view unchanged skip rendering entirely. Frame CRC-32
+uses a lookup table while retaining the previous checksum values.
 
 Build from the source-only PAL4x library snapshot and additive mono patch:
 
@@ -39,6 +48,7 @@ count. `MONO DUMP` streams the exact packed framebuffer. Its framing is
 `MONO DUMP START <width> <height> <stride> <bytes>\n`, then `<bytes>` raw
 row-major bytes (most significant bit is the leftmost pixel), followed by
 `\nMONO DUMP END\n`. Wait for `MONO FRAME` before requesting a dump.
+The 3D scene also prints `MONO DELTA` with changed byte and pixel counts.
 
 The UI uses a flash-resident 1-bit raster of the open licensed Inter typeface;
 the typeface license and generator are in `fonts/`.

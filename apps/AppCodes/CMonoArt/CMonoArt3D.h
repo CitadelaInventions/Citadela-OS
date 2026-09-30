@@ -3,10 +3,11 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 
 // A solid, depth-sorted trefoil tube. Geometry is sampled along a 3-D torus
-// knot and projected once per frame. The renderer writes straight into the
-// caller's 1-bit framebuffer; it needs no image or depth buffer of its own.
+// knot and projected once per frame. The direct path plots to the caller;
+// the incremental path uses one packed scratch canvas for exact comparisons.
 namespace CMonoArt3D {
 
 struct KnotPoint {
@@ -18,6 +19,64 @@ struct KnotPoint {
     int16_t screenY;
     uint8_t radiusX;
     uint8_t radiusY;
+};
+
+struct WorldPoint {
+    float x;
+    float y;
+    float z;
+};
+
+// A temporary packed image of the 3-D scene. Unlike a pixel-at-a-time video
+// callback, an ellipse row can write its ordered black/white dither pattern a
+// byte at a time. The two paths have the same final bits, including overlaps.
+struct PackedCanvas {
+    uint8_t *bits;
+    int stride;
+    int top;
+
+    inline void operator()(int x, int y, bool white) {
+        uint8_t &value = bits[(y - top) * stride + (x >> 3)];
+        const uint8_t mask = (uint8_t)(0x80U >> (x & 7));
+        if (white) value |= mask;
+        else value &= (uint8_t)~mask;
+    }
+
+    inline void shadeSpan(int firstX, int lastX, int y, int light) {
+        if (firstX > lastX) return;
+        // Each entry is the exact eight-pixel repeat of the original 4x4
+        // Bayer test for one row and light level.
+        static constexpr uint8_t PATTERN[4][16] = {
+            {0x00,0x88,0x88,0xAA,0xAA,0xAA,0xAA,0xAA,
+             0xAA,0xEE,0xEE,0xFF,0xFF,0xFF,0xFF,0xFF},
+            {0x00,0x00,0x00,0x00,0x00,0x44,0x44,0x55,
+             0x55,0x55,0x55,0x55,0x55,0xDD,0xDD,0xFF},
+            {0x00,0x00,0x22,0x22,0xAA,0xAA,0xAA,0xAA,
+             0xAA,0xAA,0xBB,0xBB,0xFF,0xFF,0xFF,0xFF},
+            {0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x11,
+             0x55,0x55,0x55,0x55,0x55,0x55,0x77,0x77}
+        };
+        const uint8_t pattern = PATTERN[y & 3][light];
+
+        uint8_t *row = bits + (y - top) * stride;
+        const int firstByte = firstX >> 3;
+        const int lastByte = lastX >> 3;
+        const uint8_t firstMask = (uint8_t)(0xffU >> (firstX & 7));
+        const uint8_t lastMask = (uint8_t)(0xffU << (7 - (lastX & 7)));
+        if (firstByte == lastByte) {
+            const uint8_t mask = firstMask & lastMask;
+            row[firstByte] = (row[firstByte] & (uint8_t)~mask) |
+                             (pattern & mask);
+            return;
+        }
+        row[firstByte] = (row[firstByte] & (uint8_t)~firstMask) |
+                         (pattern & firstMask);
+        if (lastByte > firstByte + 1)
+            memset(row + firstByte + 1, pattern,
+                   (size_t)(lastByte - firstByte - 1));
+        row[lastByte] = (row[lastByte] & (uint8_t)~lastMask) |
+                        (pattern & lastMask);
+    }
 };
 
 template <class Plot>
@@ -66,6 +125,27 @@ inline void shadedEllipse(Plot &plot, int centerX, int centerY,
         if (light > 13) light = 13;
         for (int x = firstX; x <= lastX; ++x)
             plot(x, y, BAYER[y & 3][x & 3] < light);
+    }
+}
+
+inline void shadedEllipse(PackedCanvas &plot, int centerX, int centerY,
+                          int radiusX, int radiusY,
+                          int width, int top, int bottom) {
+    const int firstY = centerY - radiusY > top ? centerY - radiusY : top;
+    const int lastY = centerY + radiusY < bottom ? centerY + radiusY : bottom;
+    if (firstY > lastY) return;
+    const float invRadiusSq = 1.0f / (float)(radiusY * radiusY);
+    for (int y = firstY; y <= lastY; ++y) {
+        const int dy = y - centerY;
+        const int halfSpan = (int)(radiusX *
+            sqrtf(1.0f - dy * dy * invRadiusSq));
+        const int firstX = centerX - halfSpan > 0 ? centerX - halfSpan : 0;
+        const int lastX = centerX + halfSpan < width - 1 ?
+            centerX + halfSpan : width - 1;
+        int light = 8 - dy * 5 / radiusY;
+        if (light < 2) light = 2;
+        if (light > 13) light = 13;
+        plot.shadeSpan(firstX, lastX, y, light);
     }
 }
 
@@ -121,8 +201,8 @@ inline void paintSegment(Plot &plot, const KnotPoint &a,
     }
 }
 
-// Plot signature: void(int x, int y, bool white). The caller clears the
-// framebuffer first, then calls this once per scene change or rotation.
+// Plot signature: void(int x, int y, bool white). Direct callers clear the
+// framebuffer first; renderIncremental below handles comparison and updates.
 // "width" is the actual horizontal pixel count; y is restricted to top..bottom.
 template <class Plot>
 void render(Plot plot, int width, int top, int bottom,
@@ -130,20 +210,33 @@ void render(Plot plot, int width, int top, int bottom,
     static constexpr int COUNT = 240;
     static constexpr float FULL_CIRCLE = 6.28318530718f;
     static constexpr float TUBE_RADIUS = 0.105f;
-    // The Arduino loop task has a small stack. Keep the only geometry cache
-    // in static RAM (about 6.2 KB), not on that task's stack.
+    // The Arduino loop task has a small stack. Keep geometry caches in static
+    // RAM rather than on that task's stack.
     static KnotPoint points[COUNT];
     static uint16_t order[COUNT];
+    // The knot's unrotated shape is immutable. Cache its samples so mouse
+    // movements do not repeat 960 trigonometric calls per frame. Keep the
+    // exact expressions used by the original renderer for identical pixels.
+    static WorldPoint world[COUNT];
+    static bool worldReady = false;
+    if (!worldReady) {
+        for (int i = 0; i < COUNT; ++i) {
+            const float t = FULL_CIRCLE * i / COUNT;
+            const float arm = 1.03f + 0.40f * cosf(3.0f * t);
+            world[i].x = arm * cosf(2.0f * t);
+            world[i].y = arm * sinf(2.0f * t);
+            world[i].z = 0.62f * sinf(3.0f * t);
+        }
+        worldReady = true;
+    }
     const float cosYaw = cosf(yaw), sinYaw = sinf(yaw);
     const float cosPitch = cosf(pitch), sinPitch = sinf(pitch);
     float maxX = 0.0f, maxY = 0.0f;
 
     for (int i = 0; i < COUNT; ++i) {
-        const float t = FULL_CIRCLE * i / COUNT;
-        const float arm = 1.03f + 0.40f * cosf(3.0f * t);
-        const float worldX = arm * cosf(2.0f * t);
-        const float worldY = arm * sinf(2.0f * t);
-        const float worldZ = 0.62f * sinf(3.0f * t);
+        const float worldX = world[i].x;
+        const float worldY = world[i].y;
+        const float worldZ = world[i].z;
         const float rotatedX = cosYaw * worldX + sinYaw * worldZ;
         const float yawZ = -sinYaw * worldX + cosYaw * worldZ;
         const float rotatedY = cosPitch * worldY - sinPitch * yawZ;
@@ -205,6 +298,52 @@ void render(Plot plot, int width, int top, int bottom,
         paintSegment(plot, points[segment], points[(segment + 1) % COUNT],
                      segment, pixelAspect, width, top, bottom);
     }
+}
+
+struct IncrementalStats {
+    bool ok;
+    uint32_t changedBytes;
+    uint32_t changedPixels;
+};
+
+// Row signature: uint8_t *(int y). Call without clearing the existing video
+// image on rotations. Rendering to a packed scratch image resolves all strand
+// overlap first; comparison then commits only bytes with changed final pixels.
+// Other scene regions, captions, and identical pixels stay untouched.
+template <class Row>
+IncrementalStats renderIncremental(Row row, int width, int top, int bottom,
+                                   float yaw, float pitch, float zoom) {
+    IncrementalStats stats = {false, 0, 0};
+    if (width <= 0 || bottom < top) return stats;
+    const size_t stride = (size_t)(width + 7) / 8;
+    const size_t required = stride * (size_t)(bottom - top + 1);
+    static uint8_t *scratch = nullptr;
+    static size_t capacity = 0;
+    if (capacity < required) {
+        uint8_t *replacement = (uint8_t *)realloc(scratch, required);
+        if (!replacement) return stats;
+        scratch = replacement;
+        capacity = required;
+    }
+    memset(scratch, 0, required);
+    PackedCanvas canvas = {scratch, (int)stride, top};
+    render(canvas, width, top, bottom, yaw, pitch, zoom);
+
+    for (int y = top; y <= bottom; ++y) {
+        uint8_t *destination = row(y);
+        if (!destination) return stats;
+        const uint8_t *source = scratch + (size_t)(y - top) * stride;
+        for (size_t byte = 0; byte < stride; ++byte) {
+            const uint8_t before = destination[byte];
+            const uint8_t after = source[byte];
+            if (before == after) continue;
+            destination[byte] = after;
+            ++stats.changedBytes;
+            stats.changedPixels += __builtin_popcount((unsigned)(before ^ after));
+        }
+    }
+    stats.ok = true;
+    return stats;
 }
 
 } // namespace CMonoArt3D
