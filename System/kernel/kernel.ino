@@ -26,6 +26,10 @@
 #include "../Libraries/CitadelaWallpaperRenderer.h"
 #include "../Libraries/CitadelaConfig.h"
 #include "../Libraries/CitadelaUARTUpload.h"
+
+#ifdef CITADELA_DISPLAY_STOCK_BITLUNI
+#error The kernel requires the project PAL4x composite encoder; use Tools/build-kernel-pal4x.sh.
+#endif
  
 #define CONSOLE_LINES 64
 #define CONSOLE_VISIBLE_LINES 10
