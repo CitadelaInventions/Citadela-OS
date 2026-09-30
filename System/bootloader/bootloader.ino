@@ -7,8 +7,9 @@
 #include <ESP32Video.h>
 #include <Ressources/Font6x8.h>
 #include <Ressources/Font8x8.h>
-// This app uses the standard PAL mode and can build with stock bitluni.
-#define CITADELA_DISPLAY_STOCK_BITLUNI
+#ifdef CITADELA_DISPLAY_STOCK_BITLUNI
+#error The bootloader requires the project PAL4x composite encoder.
+#endif
 #include "../Libraries/CitadelaDisplay.h"
 #include "../Libraries/CitadelaSerialCommands.h"
 #include "../Libraries/CitadelaStorage.h"
@@ -63,9 +64,11 @@ static void clearStaleBootState() {
         Serial.println("Could not clear the boot state.");
 }
 
-static uint32_t white() { return videodisplay.RGB(236, 246, 245); }
-static uint32_t accent() { return videodisplay.RGB(35, 210, 190); }
-static uint32_t background() { return videodisplay.RGB(9, 17, 23); }
+static uint32_t white() { return videodisplay.RGB(239, 247, 246); }
+static uint32_t accent() { return videodisplay.RGB(40, 217, 189); }
+static uint32_t background() { return videodisplay.RGB(7, 17, 29); }
+static uint32_t muted() { return videodisplay.RGB(143, 171, 181); }
+static uint32_t panel() { return videodisplay.RGB(19, 39, 53); }
 
 static void printAt(int x, int y, const String &message, uint32_t color) {
     videodisplay.setTextColor(color, background());
@@ -76,46 +79,56 @@ static void printAt(int x, int y, const String &message, uint32_t color) {
 static void drawFrame(const char *title) {
     if (!videoReady) return;
     videodisplay.clear(background());
-    videodisplay.fillRect(0, 0, SCREEN_WIDTH, 34, videodisplay.RGB(19, 51, 63));
+    videodisplay.fillRect(0, 0, SCREEN_WIDTH, 3, accent());
+    videodisplay.fillRect(0, 3, SCREEN_WIDTH, 40, panel());
+    videodisplay.fillRect(0, 43, SCREEN_WIDTH, 1, videodisplay.RGB(46, 77, 86));
     videodisplay.setFont(Font8x8);
-    printAt(16, 11, title, white());
+    printAt(15, 13, title, white());
     videodisplay.setFont(Font6x8);
-    printAt(16, 266, "Arrows: select   Enter: open   Tab: BLE   Esc: OS/menu", white());
+    printAt(15, 30, "CITADELA  /  SYSTEM RECOVERY", accent());
+    videodisplay.fillRect(0, 260, SCREEN_WIDTH, 28, panel());
+    printAt(15, 270, "UP/DOWN Select   ENTER Open   TAB Bluetooth   ESC Back", muted());
 }
 
 static void drawStatus() {
     if (!videoReady) return;
-    videodisplay.fillRect(16, 226, SCREEN_WIDTH - 32, 29, background());
+    videodisplay.fillRect(15, 231, SCREEN_WIDTH - 30, 23, background());
     String shown = statusLine.length() ? statusLine :
-        (bluetoothConnected ? "Keyboard connected" : "Keyboard not connected");
-    printAt(18, 235, shown.substring(0, 55), accent());
+        (bluetoothConnected ? "Keyboard connected" : "Keyboard disconnected  -  TAB to pair");
+    videodisplay.fillRect(17, 239, 4, 4, bluetoothConnected ? accent() : videodisplay.RGB(229, 167, 88));
+    printAt(27, 237, shown.substring(0, 52), muted());
 }
 
 static void drawMenu() {
     if (!videoReady) return;
-    drawFrame("Citadela Bootloader");
+    drawFrame("Boot & Recovery");
+    printAt(18, 51, "Choose a system action", muted());
     for (int i = 0; i < 5; ++i) {
-        int y = 52 + i * 32;
+        int y = 69 + i * 31;
         bool selected = i == selectedItem;
-        uint32_t fill = selected ? accent() : videodisplay.RGB(20, 37, 45);
+        uint32_t fill = selected ? videodisplay.RGB(25, 76, 79) : panel();
         videodisplay.fillRect(16, y, SCREEN_WIDTH - 32, 27, fill);
-        videodisplay.rect(16, y, SCREEN_WIDTH - 32, 27, selected ? white() : accent());
-        videodisplay.setTextColor(selected ? background() : white(), fill);
-        videodisplay.setCursor(25, y + 9);
+        if (selected) videodisplay.fillRect(16, y, 4, 27, accent());
+        videodisplay.setTextColor(selected ? white() : muted(), fill);
+        videodisplay.setCursor(27, y + 9);
+        videodisplay.print(i + 1);
+        videodisplay.setCursor(47, y + 9);
         videodisplay.print(MENU_ITEMS[i]);
+        if (selected) { videodisplay.setCursor(339, y + 9); videodisplay.print(">"); }
     }
     drawStatus();
 }
 
 static void drawBleDevices() {
     if (!videoReady) return;
-    drawFrame("Bluetooth Device Connector");
-    printAt(18, 42, "Choose a keyboard discovered by the controller", white());
+    drawFrame("Bluetooth Keyboard");
+    printAt(18, 52, "Select a keyboard from the controller scan", muted());
     for (int i = 0; i < 5; ++i) {
-        int y = 68 + i * 30;
-        uint32_t fill = i == selectedItem ? accent() : videodisplay.RGB(20, 37, 45);
+        int y = 71 + i * 30;
+        uint32_t fill = i == selectedItem ? videodisplay.RGB(25, 76, 79) : panel();
         videodisplay.fillRect(16, y, SCREEN_WIDTH - 32, 25, fill);
-        videodisplay.setTextColor(i == selectedItem ? background() : white(), fill);
+        if (i == selectedItem) videodisplay.fillRect(16, y, 4, 25, accent());
+        videodisplay.setTextColor(i == selectedItem ? white() : muted(), fill);
         videodisplay.setCursor(24, y + 8);
         String label = bleDevices[i].length() ? bleDevices[i] : String("Device ") + (i + 1) + " - scanning";
         videodisplay.print(label.substring(0, 54).c_str());
@@ -126,6 +139,7 @@ static void drawBleDevices() {
 static void drawDiagnostics() {
     if (!videoReady) return;
     drawFrame("System Diagnostics");
+    videodisplay.fillRect(16, 54, SCREEN_WIDTH - 32, 163, panel());
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *next = esp_ota_get_next_update_partition(nullptr);
     printAt(18, 55, String("Free heap: ") + ESP.getFreeHeap() + " bytes", white());
@@ -135,7 +149,7 @@ static void drawDiagnostics() {
     printAt(18, 135, String("Running OTA: ") + (running ? running->label : "unknown"), white());
     printAt(18, 155, String("Next OTA: ") + (next ? next->label : "unavailable"), white());
     printAt(18, 175, String("SPIFFS: ") + (spiffsReady ? "ready" : "unavailable"), white());
-    printAt(18, 195, "Images load from /System on the SD card", accent());
+    printAt(18, 195, "Images: /System on SD card", accent());
     drawStatus();
 }
 
@@ -274,15 +288,15 @@ static void handleMouse(const String &line) {
     int x = 0, y = 0, buttons = 0;
     if (sscanf(line.c_str(), "MOUSE %d %d %d", &x, &y, &buttons) != 3) return;
     bool down = (buttons & 1) != 0;
-    if (currentScreen == HOME && x >= 16 && x < SCREEN_WIDTH - 16 && y >= 52 && y < 207) {
-        int item = (y - 52) / 32;
-        if (item >= 0 && item < 5 && y < 52 + item * 32 + 27) {
+    if (currentScreen == HOME && x >= 16 && x < SCREEN_WIDTH - 16 && y >= 69 && y < 220) {
+        int item = (y - 69) / 31;
+        if (item >= 0 && item < 5 && y < 69 + item * 31 + 27) {
             if (item != selectedItem) { selectedItem = item; drawMenu(); }
             if (down && !mouseWasDown) selectCurrentItem();
         }
-    } else if (currentScreen == BLE_DEVICES && x >= 16 && x < SCREEN_WIDTH - 16 && y >= 68 && y < 213) {
-        int item = (y - 68) / 30;
-        if (item >= 0 && item < 5 && y < 68 + item * 30 + 25) {
+    } else if (currentScreen == BLE_DEVICES && x >= 16 && x < SCREEN_WIDTH - 16 && y >= 71 && y < 216) {
+        int item = (y - 71) / 30;
+        if (item >= 0 && item < 5 && y < 71 + item * 30 + 25) {
             if (item != selectedItem) { selectedItem = item; drawBleDevices(); }
             if (down && !mouseWasDown) selectCurrentItem();
         }
