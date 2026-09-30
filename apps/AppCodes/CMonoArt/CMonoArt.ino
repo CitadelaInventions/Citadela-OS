@@ -20,9 +20,10 @@ static constexpr const char *BOOT_STATE_PATH = "/evil.txt";
 static constexpr int TOP_BAR = 30;
 static constexpr int FOOTER_TOP = HEIGHT - 35;
 
-enum Scene : uint8_t { FRACTAL, LETTERING, ETCHING, KNOT, SCENE_COUNT };
+enum Scene : uint8_t { FRACTAL, LETTERING, ETCHING, KNOT, GYROSCOPE, SCENE_COUNT };
 static const char *const SCENE_NAMES[] = {
-    "FRACTAL CONTOURS", "TYPE SPECIMEN", "MICRO ETCHING", "TREFOIL KNOT 3D"
+    "FRACTAL CONTOURS", "TYPE SPECIMEN", "MICRO ETCHING",
+    "TREFOIL KNOT 3D", "ORBITAL GYROSCOPE 3D"
 };
 
 static Citadela::CitCompositeColorDAC video;
@@ -37,6 +38,7 @@ static float viewHeight = 2.35f;
 static int nextRow = 0;
 static uint32_t renderStarted = 0;
 static Scene scene = FRACTAL;
+static bool is3DScene() { return scene == KNOT || scene == GYROSCOPE; }
 static Scene displayedScene = SCENE_COUNT;
 static bool frameComplete = false;
 static float objectYaw = 0.45f;
@@ -48,13 +50,14 @@ static float displayedViewHeight = 0.0f;
 static float displayedYaw = 0.0f;
 static float displayedPitch = 0.0f;
 static float displayedZoom = 0.0f;
-static bool knotCanvasValid = false;
+static bool modelCanvasValid = false;
 static bool captionReusable = false;
-static bool knotInputDirty = false;
-static CMonoArt3D::IncrementalStats knotStats = {false, 0, 0};
+static bool modelInputDirty = false;
+static CMonoArt3D::IncrementalStats modelStats = {false, 0, 0};
 static bool ridgesReady = false;
 static bool mouseSeen = false;
 static bool mouseLeftDown = false;
+static bool mouseOrbitLatched = false;
 static bool cursorShown = false;
 static int mouseControllerX = 188;
 static int mouseControllerY = 142;
@@ -241,7 +244,7 @@ static void beginRender() {
             centerReal == displayedCenterReal &&
             centerImaginary == displayedCenterImaginary &&
             viewHeight == displayedViewHeight :
-            scene == KNOT ?
+            is3DScene() ?
             objectYaw == displayedYaw &&
             objectPitch == displayedPitch &&
             objectZoom == displayedZoom : true;
@@ -252,9 +255,10 @@ static void beginRender() {
         }
     }
     restoreCursor();
-    captionReusable = scene == KNOT && knotCanvasValid;
+    captionReusable = is3DScene() && modelCanvasValid &&
+                      displayedScene == scene;
     if (!captionReusable) video.mono1Clear(false);
-    if (scene != KNOT) knotCanvasValid = false;
+    if (!is3DScene() || displayedScene != scene) modelCanvasValid = false;
     nextRow = 0;
     renderStarted = millis();
     frameComplete = false;
@@ -471,7 +475,7 @@ static void drawCaption() {
                     CMonoFont::Small, true, 1, 3);
     const char *hint = scene == FRACTAL ?
         "TAB MODE   ARROWS PAN   +/- ZOOM" :
-        scene == KNOT ?
+        is3DScene() ?
         "TAB MODE   ROTATE   +/- ZOOM   ESC" :
         "TAB MODE   ESC EXIT   1 BIT/PIXEL";
     CMonoFont::draw(video, 20, HEIGHT - 9, hint,
@@ -511,11 +515,11 @@ static void reportFrame() {
         (unsigned)scene, SCENE_NAMES[scene],
         (unsigned long)(millis() - renderStarted),
         (unsigned long)(crc ^ 0xFFFFFFFFU), (unsigned long)whitePixels);
-    if (scene == KNOT)
+    if (is3DScene())
         Serial.printf("MONO DELTA ok=%u changedBytes=%lu changedPixels=%lu\n",
-            knotStats.ok ? 1U : 0U,
-            (unsigned long)knotStats.changedBytes,
-            (unsigned long)knotStats.changedPixels);
+            modelStats.ok ? 1U : 0U,
+            (unsigned long)modelStats.changedBytes,
+            (unsigned long)modelStats.changedPixels);
     drawCursor();
 }
 
@@ -552,14 +556,18 @@ static bool handleMouseReport(const String &line) {
     mouseControllerY = y;
     cursorX = x * (WIDTH - 1) / 375;
     cursorY = y * (HEIGHT - 1) / 284;
-    if (scene == KNOT && leftDown && mouseLeftDown &&
+    const bool leftPressed = leftDown && !mouseLeftDown;
+    // A click toggles orbit; subsequent motion works after button release.
+    if (is3DScene() && leftPressed)
+        mouseOrbitLatched = !mouseOrbitLatched;
+    if (is3DScene() && mouseOrbitLatched && !leftPressed &&
         (movedX != 0 || movedY != 0)) {
         objectYaw += movedX * 0.012f;
         objectPitch = constrain(objectPitch + movedY * 0.012f, -1.4f, 1.4f);
-        knotInputDirty = true;
+        modelInputDirty = true;
     }
     mouseLeftDown = leftDown;
-    if (!knotInputDirty) drawCursor();
+    if (!modelInputDirty) drawCursor();
     return true;
 }
 
@@ -583,7 +591,8 @@ static void handleInput(String line, bool fromUSB) {
     if (line == "MONO DUMP" && fromUSB) { dumpFrame(); return; }
     if (line == "Tab" || line == "tab" || line == "TAB") {
         scene = (Scene)(((unsigned)scene + 1U) % SCENE_COUNT);
-        knotInputDirty = false;
+        modelInputDirty = false;
+        mouseOrbitLatched = false;
         beginRender();
         return;
     }
@@ -596,21 +605,21 @@ static void handleInput(String line, bool fromUSB) {
         centerImaginary -= pan;
     else if (scene == FRACTAL && (line == "DownArrow" || line == "down"))
         centerImaginary += pan;
-    else if (scene == KNOT && (line == "LeftArrow" || line == "left"))
+    else if (is3DScene() && (line == "LeftArrow" || line == "left"))
         objectYaw -= 0.18f;
-    else if (scene == KNOT && (line == "RightArrow" || line == "right"))
+    else if (is3DScene() && (line == "RightArrow" || line == "right"))
         objectYaw += 0.18f;
-    else if (scene == KNOT && (line == "UpArrow" || line == "up"))
+    else if (is3DScene() && (line == "UpArrow" || line == "up"))
         objectPitch = max(-1.4f, objectPitch - 0.18f);
-    else if (scene == KNOT && (line == "DownArrow" || line == "down"))
+    else if (is3DScene() && (line == "DownArrow" || line == "down"))
         objectPitch = min(1.4f, objectPitch + 0.18f);
     else if (scene == FRACTAL && (line == "+" || line == "=" || line == "PageUp"))
         viewHeight *= 0.6f;
     else if (scene == FRACTAL && (line == "-" || line == "PageDown"))
         viewHeight *= 1.6f;
-    else if (scene == KNOT && (line == "+" || line == "=" || line == "PageUp"))
+    else if (is3DScene() && (line == "+" || line == "=" || line == "PageUp"))
         objectZoom = min(1.55f, objectZoom * 1.12f);
-    else if (scene == KNOT && (line == "-" || line == "PageDown"))
+    else if (is3DScene() && (line == "-" || line == "PageDown"))
         objectZoom = max(0.72f, objectZoom / 1.12f);
     else if (line == "r" || line == "R") {
         centerReal = -0.65f;
@@ -620,7 +629,7 @@ static void handleInput(String line, bool fromUSB) {
         objectPitch = -0.25f;
         objectZoom = 1.0f;
     } else return;
-    knotInputDirty = false;
+    modelInputDirty = false;
     beginRender();
 }
 
@@ -655,26 +664,36 @@ void loop() {
     String line;
     while (controllerInput.poll(Serial1, line)) handleInput(line, false);
     while (usbInput.poll(Serial, line)) handleInput(line, true);
-    if (knotInputDirty) {
-        knotInputDirty = false;
+    if (modelInputDirty) {
+        modelInputDirty = false;
         beginRender();
     }
     if (videoReady && nextRow < HEIGHT) {
         if (scene == LETTERING) {
             drawLettering();
             nextRow = HEIGHT;
-        } else if (scene == KNOT) {
-            knotStats = CMonoArt3D::renderIncremental(
-                [&](int y) { return video.mono1Row(y); },
-                WIDTH, TOP_BAR, FOOTER_TOP - 1,
-                objectYaw, objectPitch, objectZoom);
-            if (!knotStats.ok) {
+        } else if (is3DScene()) {
+            auto row = [&](int y) { return video.mono1Row(y); };
+            modelStats = scene == KNOT ?
+                CMonoArt3D::renderIncremental(row,
+                    WIDTH, TOP_BAR, FOOTER_TOP - 1,
+                    objectYaw, objectPitch, objectZoom) :
+                CMonoArt3D::renderSecondIncremental(row,
+                    WIDTH, TOP_BAR, FOOTER_TOP - 1,
+                    objectYaw, objectPitch, objectZoom);
+            if (!modelStats.ok) {
                 video.mono1FillRect(0, TOP_BAR, WIDTH,
                                     FOOTER_TOP - TOP_BAR, false);
-                CMonoArt3D::render([&](int x, int y, bool white) {
+                auto plot = [&](int x, int y, bool white) {
                     video.mono1Pixel(x, y, white);
-                }, WIDTH, TOP_BAR, FOOTER_TOP - 1,
-                   objectYaw, objectPitch, objectZoom);
+                };
+                if (scene == KNOT)
+                    CMonoArt3D::render(plot, WIDTH, TOP_BAR, FOOTER_TOP - 1,
+                                       objectYaw, objectPitch, objectZoom);
+                else
+                    CMonoArt3D::renderSecond(plot, WIDTH, TOP_BAR,
+                                             FOOTER_TOP - 1,
+                                             objectYaw, objectPitch, objectZoom);
             }
             nextRow = HEIGHT;
         } else {
@@ -688,7 +707,7 @@ void loop() {
         if (nextRow == HEIGHT) {
             if (scene == ETCHING) drawObservatory();
             if (!captionReusable) drawCaption();
-            if (scene == KNOT) knotCanvasValid = true;
+            if (is3DScene()) modelCanvasValid = true;
             reportFrame();
         }
         yield();

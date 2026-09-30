@@ -306,6 +306,42 @@ struct IncrementalStats {
     uint32_t changedPixels;
 };
 
+// Both interactive models use this one scratch allocation. Keeping it in a
+// non-template function avoids one allocation per renderer/lambda type.
+inline uint8_t *packedScratch(size_t required) {
+    static uint8_t *scratch = nullptr;
+    static size_t capacity = 0;
+    if (capacity < required) {
+        uint8_t *replacement = (uint8_t *)realloc(scratch, required);
+        if (!replacement) return nullptr;
+        scratch = replacement;
+        capacity = required;
+    }
+    memset(scratch, 0, required);
+    return scratch;
+}
+
+template <class Row>
+IncrementalStats commitPacked(Row row, const uint8_t *source,
+                              size_t stride, int top, int bottom) {
+    IncrementalStats stats = {false, 0, 0};
+    for (int y = top; y <= bottom; ++y) {
+        uint8_t *destination = row(y);
+        if (!destination) return stats;
+        const uint8_t *packed = source + (size_t)(y - top) * stride;
+        for (size_t byte = 0; byte < stride; ++byte) {
+            const uint8_t before = destination[byte];
+            const uint8_t after = packed[byte];
+            if (before == after) continue;
+            destination[byte] = after;
+            ++stats.changedBytes;
+            stats.changedPixels += __builtin_popcount((unsigned)(before ^ after));
+        }
+    }
+    stats.ok = true;
+    return stats;
+}
+
 // Row signature: uint8_t *(int y). Call without clearing the existing video
 // image on rotations. Rendering to a packed scratch image resolves all strand
 // overlap first; comparison then commits only bytes with changed final pixels.
@@ -317,33 +353,272 @@ IncrementalStats renderIncremental(Row row, int width, int top, int bottom,
     if (width <= 0 || bottom < top) return stats;
     const size_t stride = (size_t)(width + 7) / 8;
     const size_t required = stride * (size_t)(bottom - top + 1);
-    static uint8_t *scratch = nullptr;
-    static size_t capacity = 0;
-    if (capacity < required) {
-        uint8_t *replacement = (uint8_t *)realloc(scratch, required);
-        if (!replacement) return stats;
-        scratch = replacement;
-        capacity = required;
-    }
-    memset(scratch, 0, required);
+    uint8_t *scratch = packedScratch(required);
+    if (!scratch) return stats;
     PackedCanvas canvas = {scratch, (int)stride, top};
     render(canvas, width, top, bottom, yaw, pitch, zoom);
+    return commitPacked(row, scratch, stride, top, bottom);
+}
 
-    for (int y = top; y <= bottom; ++y) {
-        uint8_t *destination = row(y);
-        if (!destination) return stats;
-        const uint8_t *source = scratch + (size_t)(y - top) * stride;
-        for (size_t byte = 0; byte < stride; ++byte) {
-            const uint8_t before = destination[byte];
-            const uint8_t after = source[byte];
-            if (before == after) continue;
-            destination[byte] = after;
-            ++stats.changedBytes;
-            stats.changedPixels += __builtin_popcount((unsigned)(before ^ after));
+// A second, separate 3-D object: a plated icosahedral hub inside three
+// perpendicular graduated gimbals. Rear gimbals are drawn first, the opaque
+// faceted hub covers them, and front gimbals are drawn last.
+struct SecondPoint {
+    int16_t x;
+    int16_t y;
+    float depth;
+};
+
+struct SecondVertex {
+    SecondPoint screen;
+    float x;
+    float y;
+    float z;
+};
+
+struct SecondCamera {
+    float cy, sy, cp, sp;
+    float scale, aspect;
+    int middleX, middleY;
+};
+
+inline SecondVertex secondProject(const SecondCamera &camera,
+                                  float x, float y, float z) {
+    const float rx = camera.cy * x + camera.sy * z;
+    const float yawZ = -camera.sy * x + camera.cy * z;
+    const float ry = camera.cp * y - camera.sp * yawZ;
+    const float rz = camera.sp * y + camera.cp * yawZ;
+    const float perspective = 8.0f / (8.0f - rz);
+    SecondVertex projected;
+    projected.screen.x = (int16_t)lroundf(camera.middleX +
+        rx * perspective * camera.scale * camera.aspect);
+    projected.screen.y = (int16_t)lroundf(camera.middleY -
+        ry * perspective * camera.scale);
+    projected.screen.depth = rz;
+    projected.x = rx;
+    projected.y = ry;
+    projected.z = rz;
+    return projected;
+}
+
+template <class Plot>
+inline void secondLine(Plot &plot, int x0, int y0, int x1, int y1,
+                       bool white, int width, int top, int bottom) {
+    const int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    const int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    int error = dx + dy;
+    for (;;) {
+        pixel(plot, x0, y0, white, width, top, bottom);
+        if (x0 == x1 && y0 == y1) break;
+        const int doubled = error * 2;
+        if (doubled >= dy) { error += dy; x0 += sx; }
+        if (doubled <= dx) { error += dx; y0 += sy; }
+    }
+}
+
+template <class Plot>
+inline void secondShadeSpan(Plot &plot, int firstX, int lastX,
+                            int y, int light) {
+    static constexpr uint8_t BAYER[4][4] = {
+        {0, 8, 2, 10}, {12, 4, 14, 6},
+        {3, 11, 1, 9}, {15, 7, 13, 5}
+    };
+    for (int x = firstX; x <= lastX; ++x)
+        plot(x, y, BAYER[y & 3][x & 3] < light);
+}
+
+inline void secondShadeSpan(PackedCanvas &plot, int firstX, int lastX,
+                            int y, int light) {
+    plot.shadeSpan(firstX, lastX, y, light);
+}
+
+template <class Plot>
+inline void secondTriangle(Plot &plot, int ax, int ay, int bx, int by,
+                           int cx, int cy, int light,
+                           int width, int top, int bottom) {
+    int firstY = ay < by ? ay : by;
+    if (cy < firstY) firstY = cy;
+    int lastY = ay > by ? ay : by;
+    if (cy > lastY) lastY = cy;
+    if (firstY < top) firstY = top;
+    if (lastY > bottom) lastY = bottom;
+    const int vx[3] = {ax, bx, cx};
+    const int vy[3] = {ay, by, cy};
+    for (int y = firstY; y <= lastY; ++y) {
+        const float scan = y + 0.5f;
+        float firstX = 0.0f, lastX = 0.0f;
+        int crossings = 0;
+        for (int edge = 0; edge < 3; ++edge) {
+            const int next = (edge + 1) % 3;
+            const int y0 = vy[edge], y1 = vy[next];
+            if (y0 == y1 || scan < (y0 < y1 ? y0 : y1) ||
+                scan >= (y0 > y1 ? y0 : y1)) continue;
+            const float x = vx[edge] +
+                (scan - y0) * (vx[next] - vx[edge]) / (y1 - y0);
+            if (!crossings || x < firstX) firstX = x;
+            if (!crossings || x > lastX) lastX = x;
+            ++crossings;
+        }
+        if (crossings < 2) continue;
+        int left = (int)ceilf(firstX), right = (int)floorf(lastX);
+        if (left < 0) left = 0;
+        if (right >= width) right = width - 1;
+        if (left <= right) secondShadeSpan(plot, left, right, y, light);
+    }
+}
+
+template <class Plot>
+inline void secondRings(Plot &plot, const SecondPoint (&rings)[3][128],
+                        bool front, int width, int top, int bottom) {
+    for (int ring = 0; ring < 3; ++ring) {
+        for (int i = 0; i < 128; ++i) {
+            const SecondPoint &a = rings[ring][i];
+            const SecondPoint &b = rings[ring][(i + 1) & 127];
+            if (((a.depth + b.depth) >= 0.0f) != front) continue;
+            // Dual polished rails and a fine dark seam give each orbit band
+            // thickness without any grayscale pixels.
+            secondLine(plot, a.x, a.y - 1, b.x, b.y - 1,
+                       true, width, top, bottom);
+            secondLine(plot, a.x, a.y + 1, b.x, b.y + 1,
+                       true, width, top, bottom);
+            secondLine(plot, a.x, a.y, b.x, b.y,
+                       false, width, top, bottom);
+            if ((i & 15) == 0) {
+                secondLine(plot, a.x - 3, a.y, a.x + 3, a.y,
+                           true, width, top, bottom);
+                secondLine(plot, a.x, a.y - 2, a.x, a.y + 2,
+                           true, width, top, bottom);
+            }
         }
     }
-    stats.ok = true;
-    return stats;
+}
+
+// Direct version is also the allocation-failure fallback. Plot has the same
+// void(int x, int y, bool white) signature as the trefoil's direct renderer.
+template <class Plot>
+void renderSecond(Plot plot, int width, int top, int bottom,
+                  float yaw, float pitch, float zoom) {
+    static constexpr float PHI = 1.61803398875f;
+    static constexpr float ICO[12][3] = {
+        {-1, PHI, 0}, {1, PHI, 0}, {-1,-PHI, 0}, {1,-PHI, 0},
+        {0,-1, PHI}, {0, 1, PHI}, {0,-1,-PHI}, {0, 1,-PHI},
+        {PHI,0,-1}, {PHI,0, 1}, {-PHI,0,-1}, {-PHI,0, 1}
+    };
+    static constexpr uint8_t FACE[20][3] = {
+        {0,11,5},{0,5,1},{0,1,7},{0,7,10},{0,10,11},
+        {1,5,9},{5,11,4},{11,10,2},{10,7,6},{7,1,8},
+        {3,9,4},{3,4,2},{3,2,6},{3,6,8},{3,8,9},
+        {4,9,5},{2,4,11},{6,2,10},{8,6,7},{9,8,1}
+    };
+    static float sine[128], cosine[128];
+    static bool circleReady = false;
+    if (!circleReady) {
+        for (int i = 0; i < 128; ++i) {
+            const float angle = 6.28318530718f * i / 128;
+            sine[i] = sinf(angle);
+            cosine[i] = cosf(angle);
+        }
+        circleReady = true;
+    }
+    if (zoom < 0.5f) zoom = 0.5f;
+    if (zoom > 1.6f) zoom = 1.6f;
+    const float aspect = width * (3.0f / (4.0f * 288.0f));
+    const float halfY = (bottom - top + 1) * 0.5f - 13.0f;
+    const float halfX = width * 0.5f - 24.0f;
+    float scale = halfY / (1.75f * 1.28f);
+    const float horizontalScale = halfX / (1.75f * 1.28f * aspect);
+    if (horizontalScale < scale) scale = horizontalScale;
+    SecondCamera camera = {cosf(yaw), sinf(yaw), cosf(pitch), sinf(pitch),
+                           scale * zoom, aspect, width / 2, (top + bottom) / 2};
+
+    static SecondPoint rings[3][128];
+    for (int i = 0; i < 128; ++i) {
+        const float c = cosine[i], s = sine[i];
+        const SecondVertex a = secondProject(camera, 1.30f*c, 1.30f*s, 0);
+        const SecondVertex b = secondProject(camera, 0, 1.52f*c, 1.52f*s);
+        const SecondVertex d = secondProject(camera, 1.75f*s, 0, 1.75f*c);
+        rings[0][i] = a.screen;
+        rings[1][i] = b.screen;
+        rings[2][i] = d.screen;
+    }
+    secondRings(plot, rings, false, width, top, bottom);
+
+    SecondVertex hub[12];
+    for (int i = 0; i < 12; ++i)
+        hub[i] = secondProject(camera, ICO[i][0] * 0.55f,
+                              ICO[i][1] * 0.55f, ICO[i][2] * 0.55f);
+    uint8_t order[20];
+    for (int i = 0; i < 20; ++i) order[i] = (uint8_t)i;
+    for (int i = 1; i < 20; ++i) {
+        const uint8_t current = order[i];
+        const float depth = hub[FACE[current][0]].z +
+            hub[FACE[current][1]].z + hub[FACE[current][2]].z;
+        int j = i;
+        while (j > 0) {
+            const uint8_t previous = order[j - 1];
+            const float priorDepth = hub[FACE[previous][0]].z +
+                hub[FACE[previous][1]].z + hub[FACE[previous][2]].z;
+            if (priorDepth <= depth) break;
+            order[j] = previous;
+            --j;
+        }
+        order[j] = current;
+    }
+    for (int f = 0; f < 20; ++f) {
+        const int index = order[f];
+        const SecondVertex &a = hub[FACE[index][0]];
+        const SecondVertex &b = hub[FACE[index][1]];
+        const SecondVertex &c = hub[FACE[index][2]];
+        const float ux = b.x-a.x, uy = b.y-a.y, uz = b.z-a.z;
+        const float vx = c.x-a.x, vy = c.y-a.y, vz = c.z-a.z;
+        const float nx = uy*vz-uz*vy;
+        const float ny = uz*vx-ux*vz;
+        const float nz = ux*vy-uy*vx;
+        const float nlen = sqrtf(nx*nx + ny*ny + nz*nz);
+        const float illumination = nlen > 0.0f ?
+            (-0.38f*nx + 0.52f*ny + 0.76f*nz) / nlen : 0.0f;
+        int light = (int)lroundf(8.0f + 5.0f*illumination);
+        if (light < 2) light = 2;
+        if (light > 14) light = 14;
+        const int ax=a.screen.x, ay=a.screen.y;
+        const int bx=b.screen.x, by=b.screen.y;
+        const int cx=c.screen.x, cy=c.screen.y;
+        secondTriangle(plot, ax,ay,bx,by,cx,cy,light,width,top,bottom);
+
+        const int mx=(ax+bx+cx)/3, my=(ay+by+cy)/3;
+        const int iax=(4*ax+mx)/5, iay=(4*ay+my)/5;
+        const int ibx=(4*bx+mx)/5, iby=(4*by+my)/5;
+        const int icx=(4*cx+mx)/5, icy=(4*cy+my)/5;
+        const int panelLight = light < 12 ? light + 2 : light - 2;
+        secondTriangle(plot, iax,iay,ibx,iby,icx,icy,panelLight,
+                       width,top,bottom);
+        secondLine(plot, ax,ay,bx,by,false,width,top,bottom);
+        secondLine(plot, bx,by,cx,cy,false,width,top,bottom);
+        secondLine(plot, cx,cy,ax,ay,false,width,top,bottom);
+        secondLine(plot, iax,iay,ibx,iby,true,width,top,bottom);
+        secondLine(plot, ibx,iby,icx,icy,true,width,top,bottom);
+        secondLine(plot, icx,icy,iax,iay,true,width,top,bottom);
+        // Each plate has a small dark fastener, kept in the same depth order
+        // so that nearer facets cover details on the far side.
+        secondLine(plot, mx-2,my,mx+2,my,false,width,top,bottom);
+        secondLine(plot, mx,my-1,mx,my+1,false,width,top,bottom);
+        pixel(plot,mx,my,true,width,top,bottom);
+    }
+    secondRings(plot, rings, true, width, top, bottom);
+}
+
+template <class Row>
+IncrementalStats renderSecondIncremental(Row row, int width,
+                                         int top, int bottom,
+                                         float yaw, float pitch, float zoom) {
+    IncrementalStats failed = {false, 0, 0};
+    if (width <= 0 || bottom < top) return failed;
+    const size_t stride = (size_t)(width + 7) / 8;
+    uint8_t *scratch = packedScratch(stride * (size_t)(bottom - top + 1));
+    if (!scratch) return failed;
+    PackedCanvas canvas = {scratch, (int)stride, top};
+    renderSecond(canvas, width, top, bottom, yaw, pitch, zoom);
+    return commitPacked(row, scratch, stride, top, bottom);
 }
 
 } // namespace CMonoArt3D
