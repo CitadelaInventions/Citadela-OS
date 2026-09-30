@@ -136,7 +136,7 @@ static bool recycleBLEStack(const char *reason);
 static bool scanForSavedBLEDevice(BLEAdvertisedDevice &matchedDevice);
 static bool handleVideoProgressCommand(const String &command, bool fromSerial1);
 static bool handleCVBSFailoverCommand(const String &command, bool fromSerial1);
-static bool cvbsEnsureHardwareVideo(bool allowBLEPause = false);
+static bool cvbsEnsureHardwareVideo();
 static void setCVBSFailoverDriving(bool driving);
 static void cvbsRenderBootSplash(int percent, const String &label);
 static void cvbsUpdateBootSplash(int percent, const String &label);
@@ -2973,7 +2973,7 @@ static void cvbsPrintHeap(const char *stage) {
                   (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
 }
 
-static bool cvbsEnsureHardwareVideo(bool allowBLEPause) {
+static bool cvbsEnsureHardwareVideo() {
     bool waitForInit = false;
     portENTER_CRITICAL(&cvbsInitMux);
     if (cvbsFallbackInitFailed) {
@@ -3020,13 +3020,6 @@ static bool cvbsEnsureHardwareVideo(bool allowBLEPause) {
     };
 
     cvbsPrintHeap("failover init before MODEPALQuarter144P");
-    if (!hasInitMemory() && allowBLEPause && (bleRuntimeEnabled || pClient || pBLEScan)) {
-        Serial.println("CVBS init needs DMA heap; pausing BLE before entering bitluni allocator.");
-        stopBLERuntimeForVideo();
-        delay(120);
-        cvbsPrintHeap("failover init after BLE pause");
-    }
-
     if (!hasInitMemory()) {
         Serial.println("CVBS failover init deferred: DMA heap is below the safe allocation threshold");
         portENTER_CRITICAL(&cvbsInitMux);
@@ -3070,7 +3063,7 @@ static bool cvbsEnsureHardwareVideo(bool allowBLEPause) {
 }
 
 static bool cvbsDriveMode() {
-    if (!cvbsEnsureHardwareVideo(cvbsForceFallback || cvbsFetchModeActive)) return false;
+    if (!cvbsEnsureHardwareVideo()) return false;
     cvbsFallbackVideo.enableDAC(CVBS_FAILOVER_PIN == 25 ? 1 : 2);
     cvbsFallbackVideo.startTX();
     return true;
@@ -3374,7 +3367,7 @@ static void cvbsPrepareBootSplash(int percent, const String &label) {
     cvbsBootProgressLabel = cvbsFitBootLabel(label);
     cvbsFailoverEnabled = true;
     cvbsForceFallback = false;
-    if (cvbsEnsureHardwareVideo(true)) {
+    if (cvbsEnsureHardwareVideo()) {
         cvbsRenderBootSplash(cvbsBootProgressPercent, cvbsBootProgressLabel);
         cvbsListenMode();
     }
@@ -3468,7 +3461,8 @@ static bool handleVideoProgressCommand(const String &command, bool fromSerial1) 
         cvbsForceFallback = false;
         cvbsFailoverSuppressUntilMs = 0;
         setCVBSFailoverDriving(false);
-        if (!cvbsEnsureHardwareVideo(true)) {
+        if (!cvbsEnsureHardwareVideo()) {
+            cvbsFetchModeActive = false;
             if (fromSerial1) sendKernelVideoAck("VDFETCHFAILED");
             else Serial.println("Wallpaper fetch screen preparation failed.");
             return true;
@@ -3798,7 +3792,6 @@ static bool startBLERuntimeIfAllowed() {
 }
 
 static void serviceBluetoothRuntime() {
-    if (cvbsFetchModeActive || cvbsFailoverDriving) return;
     if (!bleCanRunNow()) {
         return;
     }
@@ -3894,14 +3887,15 @@ void setup() {
 
     Serial.println("Ready. Commands: CBTIME, CBSETTIME YYYY-MM-DD HH:MM:SS, CBTIMECLR, CBRTC, CBFAN 0-100, BLE00, BLE0n, BLEC");
     startControllerTasks();
+    serviceBluetoothRuntime();
     if (!displayRelay.begin()) Serial.println("DisplayRelay task start failed");
 }
 
 void loop() {
     checkSerialCommand();
+    serviceBluetoothRuntime();
     if (!cvbsFailoverTaskHandle) serviceCVBSFailover();
     serviceCVBSFetchAnimation();
-    serviceBluetoothRuntime();
     flushPeerQueue();
 #if ENABLE_NETWORK_FEATURES
     pollWiFiStatus();
