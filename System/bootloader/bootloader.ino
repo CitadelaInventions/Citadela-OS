@@ -11,6 +11,7 @@
 #error The bootloader requires the project PAL4x composite encoder.
 #endif
 #include "../Libraries/CitadelaDisplay.h"
+#include "../Libraries/CitadelaMouseCursor.h"
 #include "../Libraries/CitadelaSerialCommands.h"
 #include "../Libraries/CitadelaStorage.h"
 
@@ -22,6 +23,9 @@ static constexpr int VIDEO_PIN = 25;
 static constexpr const char *BOOT_STATE_PATH = "/evil.txt";
 
 static Citadela::CitCompositeColorDAC videodisplay;
+using BootCursor = Citadela::MouseCursor<Citadela::CitCompositeColorDAC, 81>;
+static BootCursor bootCursor;
+static bool cursorOutlined = true;
 static Citadela::VideoProgressSerial controllerVideo(Serial1, 120);
 static Citadela::LineReader controllerInput(128);
 static Citadela::LineReader usbInput(128);
@@ -112,6 +116,7 @@ static void drawStatus() {
 
 static void drawMenu() {
     if (!videoReady) return;
+    Citadela::CursorDrawGuard<BootCursor> cursorGuard(bootCursor);
     drawFrame("Choose an action");
     videodisplay.setFont(Font6x8);
     printAt(18, 68, "START  /  MAINTAIN  /  RECOVER", muted(), background());
@@ -138,6 +143,7 @@ static void drawMenu() {
 
 static void drawBleDevices() {
     if (!videoReady) return;
+    Citadela::CursorDrawGuard<BootCursor> cursorGuard(bootCursor);
     drawFrame("Connect a keyboard");
     videodisplay.setFont(Font6x8);
     printAt(18, 68, "BLUETOOTH  /  DISCOVERED DEVICES", muted(), background());
@@ -163,6 +169,7 @@ static void drawBleDevices() {
 
 static void drawDiagnostics() {
     if (!videoReady) return;
+    Citadela::CursorDrawGuard<BootCursor> cursorGuard(bootCursor);
     drawFrame("System diagnostics");
     videodisplay.setFont(Font6x8);
     printAt(18, 68, "HARDWARE  /  STORAGE  /  FIRMWARE", muted(), background());
@@ -198,6 +205,8 @@ static void drawCurrentScreen() {
 static bool startLocalVideo() {
     videoReady = videodisplay.init(CompMode::MODEPALColor288Pmid, VIDEO_PIN, true);
     if (videoReady) {
+        bootCursor.Begin(videodisplay, SCREEN_WIDTH, SCREEN_HEIGHT, &cursorOutlined);
+        bootCursor.Enable(true);
         controllerVideo.appVideoActive(8, 35);
         drawCurrentScreen();
     } else {
@@ -231,6 +240,7 @@ static void flashImage(const char *path, const char *label) {
         Serial.println("Boot marker unavailable; continuing with OTA recovery.");
     controllerVideo.prepare(label, 0);
     if (videoReady) {
+        bootCursor.Enable(false);
         videodisplay.releaseVideoMemory();
         videoReady = false;
         pinMode(VIDEO_PIN, INPUT_PULLDOWN);
@@ -323,6 +333,7 @@ static void selectCurrentItem() {
 static void handleMouse(const String &line) {
     int x = 0, y = 0, buttons = 0;
     if (sscanf(line.c_str(), "MOUSE %d %d %d", &x, &y, &buttons) != 3) return;
+    if (videoReady) bootCursor.MoveMouseTo(x, y, buttons);
     bool down = (buttons & 1) != 0;
     if (currentScreen == HOME && x >= 16 && x < SCREEN_WIDTH - 16 && y >= 80 && y < 221) {
         int item = (y - 80) / 29;
@@ -359,7 +370,10 @@ static void handleInput(String line) {
     if (line.startsWith("MOUSE ")) { handleMouse(line); return; }
     if (line == "RightGUI (Win) +") {
         controllerVideo.prepare("Restarting bootloader", 0);
-        if (videoReady) videodisplay.releaseVideoMemory();
+        if (videoReady) {
+            bootCursor.Enable(false);
+            videodisplay.releaseVideoMemory();
+        }
         pinMode(VIDEO_PIN, INPUT_PULLDOWN);
         Serial1.println("VDINIT");
         Serial1.flush();
