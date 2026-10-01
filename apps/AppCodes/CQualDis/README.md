@@ -1,75 +1,114 @@
-# CQualDis
+# CQualDis video player
 
-CQualDis renders five full raster, strictly black and white scenes through the
-Citadela composite DAC. TAB cycles through Mandelbrot contours, a clean UI
-type specimen with A–Z, a–z and 0–9, a detailed observatory etching, and an
-interactive projected 3D trefoil knot and orbital gyroscope. Arrows pan the
-fractal or rotate either 3D model; + and - zoom; R resets; Escape returns to
-the kernel. The SerialController mouse cursor is visible in the app. In either
-3D scene, click the left mouse button once to turn on orbit control. Move the
-mouse to rotate without holding the button; click again to turn it off.
-Switching TAB modes turns orbit control off.
+CQualDis plays prepared, silent colour videos from `/Videos` on the Citadela SD
+card. It uses the same 376 × 192 PAL4x composite display mode as CImage. The
+browser shows each video's filename and an 80 × 45 preview made from its first
+frame. It lists up to 32 MP4 files in the folder.
 
-The PAL Mono1 Ultra7x mode is 1645 × 288. Its packed framebuffer uses 206
-bytes per row, 59,328 bytes total. Pixel 0 is black; pixel 1 is white. The
-two DMA scanlines retain 16-bit DAC samples, each 3,976 bytes. The driver also
-offers 1410 × 288 (Ultra6x) and 940 × 288 (Super) mono modes. Ultra7x is the
-largest one-to-one horizontal mode that fits a complete scanline under the
-4,092-byte single DMA descriptor limit. Actual visible detail depends on the
-analog display and cable.
+## Prepare a video
 
-The current 240 MHz ESP32 build uses 485,738 of 1,310,720 application flash
-bytes (37%) and 78,320 of 327,680 bytes of statically allocated DRAM (23%).
-The compiled `.bin` is 485,888 bytes. The display allocates the 59,328-byte
-framebuffer and 7,952 bytes for two DMA scanlines at runtime. Rendering either
-3D model uses one shared 45,938-byte packed scratch image. With the same
-rendering code, the last connected-board check reported 139,884 free heap bytes
-after the 3D scratch was allocated; that is a historical measurement, not a
-new reading from the renamed image. DMA-capable free heap is part of the free
-heap figure and must not be added to it.
+An ordinary H.264 MP4 needs conversion on a computer before Citadela can play
+it. Install OpenCV for Python if needed, then run:
 
-That check measured a maximum of 12,833 CPU cycles to prepare a PAL scanline
-against a 15,373-cycle line budget, with no over-budget lines in 250,062
-observed lines. At 240 MHz, that is about 53.5 µs within a 64.1 µs deadline.
-This maximum describes the tightest observed scanline, not average CPU usage.
-The 3D scenes completed a view in roughly 66–91 ms; the default fractal and
-etching scenes took about 487 ms each. The video signal continues scanning
-while a new scene is calculated. Beyond this mode, both the DMA descriptor
-limit and the scanline deadline constrain a direct resolution increase.
+```sh
+python3 -m pip install opencv-python
+python3 Tools/prepare-cqualdis-video.py "/path/to/source.mp4" \
+  -o "/path/to/SD-card/Videos/MyVideo.mp4"
+```
 
-The 3D scenes use projected geometry and 1-bit ordered dithering instead of
-per-pixel ray marching. The knot's immutable samples are cached. Each new
-view is rasterized into a packed 45,938-byte canvas, then compared with the
-visible interior. Only bytes with changed final pixels are committed; an
-unchanged view writes no picture bytes. The cursor restores its saved background
-bits before a render or framebuffer dump. Mandelbrot skips points known to lie
-in its main cardioid or period-two bulb and mirrors rows when centered on the
-real axis. The observatory's static ridge coordinates are cached. Commands
-that leave the current view unchanged skip rendering entirely. Frame CRC-32
-uses a lookup table while retaining the previous checksum values.
+The command creates `MyVideo.mp4` and `MyVideo.cth` beside it. If converting
+elsewhere, copy **both** files to `/Videos` on the SD card. The folder must be
+at the card's root. Use `--fps 10` to set a lower maximum frame rate, or
+`--force` to replace an existing converted pair. The converter never replaces
+the source video. The player derives the displayed title from the MP4 filename;
+use a short, descriptive name when choosing the output path.
 
-Build from the source-only PAL4x library snapshot and additive mono patch:
+With CQualDis running and its USB serial port connected, the prepared pair can
+also be sent without removing the SD card:
+
+```sh
+python3 -m pip install pyserial
+python3 Tools/upload-cqualdis-video.py "/path/to/MyVideo.mp4" \
+  --port /dev/cu.usbserial-0001
+```
+
+The uploader finds `MyVideo.cth` beside the MP4, validates both files, and
+transfers them to `/Videos` with CRC-32 and an acknowledgement after every
+512-byte chunk. If there is exactly one USB serial port, `--port` can be
+omitted. `--name NewTitle` changes the destination basename for both files;
+names may use ASCII letters, digits, dots, underscores and hyphens, must begin
+with a letter or digit, and may be at most 59 characters before the extension.
+The player refuses to overwrite existing files. Remove an old pair from the
+SD card or choose a new name before retrying. If an upload is interrupted,
+check `/Videos` for a partial pair before uploading again. Press R in the
+browser to rescan after a successful transfer. USB uploads accept files up to
+2 GiB each; the serial transfer can take a long time for large MJPEG files.
+
+The converter uses OpenCV's FFmpeg backend to read H.264 and write a 376 × 192
+letterboxed MJPEG MP4 with one video track, no audio, and at most 12 frames per
+second. It checks the result by reopening it, decoding a frame, and verifying
+the MP4 codec fields (`stsd` sample entry `mp4v`, `esds` JPEG object type
+`0x6c`). If the local OpenCV build cannot produce that format, conversion
+fails rather than writing a file the app cannot play.
+
+The `.cth` preview is 3,608 bytes: the four ASCII bytes `CQTH`, little-endian
+16-bit width `80`, little-endian 16-bit height `45`, then 3,600 row-major
+8-bit palette indices. Indices 0–31 are neutral grays; 32–255 are a 7 × 8 × 4
+RGB colour cube. Keep the preview and MP4 filenames identical except for the
+extension. A video without its `.cth` file still appears in the browser, but
+shows a placeholder instead of a preview.
+
+## Install and use
+
+Build the app with:
 
 ```sh
 Tools/build-cqualdis.sh
 ```
 
-This writes `apps/CQualDis.bin`. The kernel lists the app when this binary is
-stored at `/apps/CQualDis.bin` on the SD card. The build script stages the
-library in a temporary directory and leaves the installed Arduino library
-untouched. The original library backup is in
-`Recovery/CVBS/pre-1bit-super-resolution-20260930/bitluni_ESP32Lib`; the
-pre-optimization app, binary, and patch backup is in
-`Recovery/CVBS/pre-mono-boundaries-20261001`.
+The script writes `apps/CQualDis.bin`. Store it on the SD card as
+`/apps/CQualDis.bin`, then launch CQualDis from the Citadela OS app list. The
+build script stages the PAL4x library in a temporary directory and leaves the
+installed Arduino library untouched.
 
-`MONO INFO` on USB serial reports resolution, stride, heap, maximum measured
-scanline render cycles, render budget, and count of lines exceeding that
-budget. Each completed scene prints its render time, CRC-32 and white pixel
-count. `MONO DUMP` streams the exact packed framebuffer. Its framing is
-`MONO DUMP START <width> <height> <stride> <bytes>\n`, then `<bytes>` raw
-row-major bytes (most significant bit is the leftmost pixel), followed by
-`\nMONO DUMP END\n`. Wait for `MONO FRAME` before requesting a dump.
-Both 3D scenes also print `MONO DELTA` with changed byte and pixel counts.
+In the browser, Up/Down or Left/Right changes the selected video and Enter
+starts playback. The mouse wheel also changes selection. Click a card once to
+select it; click the selected card to play it. Press R to rescan `/Videos` after
+adding files. Escape returns to the kernel.
 
-The UI uses a flash-resident 1-bit raster of the open licensed Inter typeface;
-the typeface license and generator are in `fonts/`.
+During playback, Enter or Space pauses or resumes. Escape stops playback and
+returns to the browser. Playback is silent; seeking is not implemented.
+
+## How it runs and its limits
+
+The PAL signal is generated from the driver's indexed-colour framebuffer on
+core 1. A task pinned to core 0 reads JPEG samples from the SD card and decodes
+them into two 376 × 16 palette stripes. Core 1 compares each completed stripe
+with the displayed framebuffer and writes only pixels whose final palette
+index changed. A frame with identical pixels makes no picture writes, although
+the decoder still reads and compares that frame. The queue between cores holds
+only bounded stripes, so the app does not load the whole movie into RAM.
+
+The 376 × 192 framebuffer is 144,384 bytes because each indexed pixel occupies
+a 16-bit backing word. The two stripe buffers hold 12,032 bytes together; the
+thumbnail buffer is 3,600 bytes. The JPEG decoder reserves 17,884 bytes of
+static RAM so it does not need a large contiguous heap block after the display
+starts. The decoder task has an 8,192-byte stack; SD, queues, and the display
+need additional memory. Current
+free-heap and DMA figures print as `CQUALDIS READY` and `CQUALDIS PLAY` on USB
+serial. The former Mono1 app's memory and timing measurements do not describe
+this player.
+
+On the connected original ESP32, a 30-frame prepared clip played to completion
+with 61,076 bytes of free heap during playback. A five-frame identical-image
+clip reported `changed=0` for all four repeated frames. These are functional
+checks, not a guarantee that every 12 fps clip will keep its nominal timing.
+
+Only a non-fragmented MP4 with complete JPEG frames at exactly 376 × 192 is
+supported. The MP4 parser reads sample tables from the card as needed and
+rejects H.264 streams, composition-offset tracks, and files of 4 GiB or more.
+The converter produces the supported layout. MJPEG files are usually much
+larger than their H.264 sources. Twelve frames per second is the converter's
+maximum output rate, not a guaranteed playback rate; actual speed depends on
+SD reads, JPEG complexity, and display work. The app reports changed-pixel
+counts and free heap in `CQUALDIS FRAME` serial messages.
