@@ -1,6 +1,6 @@
-# CMonoArt
+# CQualDis
 
-CMonoArt renders five full raster, strictly black and white scenes through the
+CQualDis renders five full raster, strictly black and white scenes through the
 Citadela composite DAC. TAB cycles through Mandelbrot contours, a clean UI
 type specimen with A–Z, a–z and 0–9, a detailed observatory etching, and an
 interactive projected 3D trefoil knot and orbital gyroscope. Arrows pan the
@@ -18,6 +18,25 @@ largest one-to-one horizontal mode that fits a complete scanline under the
 4,092-byte single DMA descriptor limit. Actual visible detail depends on the
 analog display and cable.
 
+The current 240 MHz ESP32 build uses 485,738 of 1,310,720 application flash
+bytes (37%) and 78,320 of 327,680 bytes of statically allocated DRAM (23%).
+The compiled `.bin` is 485,888 bytes. The display allocates the 59,328-byte
+framebuffer and 7,952 bytes for two DMA scanlines at runtime. Rendering either
+3D model uses one shared 45,938-byte packed scratch image. With the same
+rendering code, the last connected-board check reported 139,884 free heap bytes
+after the 3D scratch was allocated; that is a historical measurement, not a
+new reading from the renamed image. DMA-capable free heap is part of the free
+heap figure and must not be added to it.
+
+That check measured a maximum of 12,833 CPU cycles to prepare a PAL scanline
+against a 15,373-cycle line budget, with no over-budget lines in 250,062
+observed lines. At 240 MHz, that is about 53.5 µs within a 64.1 µs deadline.
+This maximum describes the tightest observed scanline, not average CPU usage.
+The 3D scenes completed a view in roughly 66–91 ms; the default fractal and
+etching scenes took about 487 ms each. The video signal continues scanning
+while a new scene is calculated. Beyond this mode, both the DMA descriptor
+limit and the scanline deadline constrain a direct resolution increase.
+
 The 3D scenes use projected geometry and 1-bit ordered dithering instead of
 per-pixel ray marching. The knot's immutable samples are cached. Each new
 view is rasterized into a packed 45,938-byte canvas, then compared with the
@@ -32,11 +51,11 @@ uses a lookup table while retaining the previous checksum values.
 Build from the source-only PAL4x library snapshot and additive mono patch:
 
 ```sh
-Tools/build-cmonoart.sh
+Tools/build-cqualdis.sh
 ```
 
-This writes `apps/CMonoArt.bin`. The kernel lists the app when this binary is
-stored at `/apps/CMonoArt.bin` on the SD card. The build script stages the
+This writes `apps/CQualDis.bin`. The kernel lists the app when this binary is
+stored at `/apps/CQualDis.bin` on the SD card. The build script stages the
 library in a temporary directory and leaves the installed Arduino library
 untouched. The original library backup is in
 `Recovery/CVBS/pre-1bit-super-resolution-20260930/bitluni_ESP32Lib`; the

@@ -10,7 +10,7 @@
 #include "../../../System/Libraries/CitadelaSerialCommands.h"
 #include "../../../System/Libraries/CitadelaStorage.h"
 #include "fonts/InterMono.h"
-#include "CMonoArt3D.h"
+#include "CQualDis3D.h"
 
 static constexpr int WIDTH = 1645;
 static constexpr int HEIGHT = 288;
@@ -53,7 +53,7 @@ static float displayedZoom = 0.0f;
 static bool modelCanvasValid = false;
 static bool captionReusable = false;
 static bool modelInputDirty = false;
-static CMonoArt3D::IncrementalStats modelStats = {false, 0, 0};
+static CQualDis3D::IncrementalStats modelStats = {false, 0, 0};
 static bool ridgesReady = false;
 static bool mouseSeen = false;
 static bool mouseLeftDown = false;
@@ -675,10 +675,10 @@ void loop() {
         } else if (is3DScene()) {
             auto row = [&](int y) { return video.mono1Row(y); };
             modelStats = scene == KNOT ?
-                CMonoArt3D::renderIncremental(row,
+                CQualDis3D::renderIncremental(row,
                     WIDTH, TOP_BAR, FOOTER_TOP - 1,
                     objectYaw, objectPitch, objectZoom) :
-                CMonoArt3D::renderSecondIncremental(row,
+                CQualDis3D::renderSecondIncremental(row,
                     WIDTH, TOP_BAR, FOOTER_TOP - 1,
                     objectYaw, objectPitch, objectZoom);
             if (!modelStats.ok) {
@@ -688,10 +688,10 @@ void loop() {
                     video.mono1Pixel(x, y, white);
                 };
                 if (scene == KNOT)
-                    CMonoArt3D::render(plot, WIDTH, TOP_BAR, FOOTER_TOP - 1,
+                    CQualDis3D::render(plot, WIDTH, TOP_BAR, FOOTER_TOP - 1,
                                        objectYaw, objectPitch, objectZoom);
                 else
-                    CMonoArt3D::renderSecond(plot, WIDTH, TOP_BAR,
+                    CQualDis3D::renderSecond(plot, WIDTH, TOP_BAR,
                                              FOOTER_TOP - 1,
                                              objectYaw, objectPitch, objectZoom);
             }

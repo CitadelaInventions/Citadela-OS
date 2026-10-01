@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build native-resolution, 1-bit Inter glyphs for CMonoArt.
+"""Build native-resolution, 1-bit Inter glyphs for CQualDis.
 
 Regeneration requires Pillow and uharfbuzz. Neither runs on the ESP32.
 """

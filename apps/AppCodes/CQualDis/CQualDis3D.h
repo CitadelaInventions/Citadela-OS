@@ -8,7 +8,7 @@
 // A solid, depth-sorted trefoil tube. Geometry is sampled along a 3-D torus
 // knot and projected once per frame. The direct path plots to the caller;
 // the incremental path uses one packed scratch canvas for exact comparisons.
-namespace CMonoArt3D {
+namespace CQualDis3D {
 
 struct KnotPoint {
     float x;
@@ -621,4 +621,4 @@ IncrementalStats renderSecondIncremental(Row row, int width,
     return commitPacked(row, scratch, stride, top, bottom);
 }
 
-} // namespace CMonoArt3D
+}
