@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a silent video and palette thumbnail for CQualDis.
+"""Prepare a silent video and palette thumbnail for CVideo.
 
 The ESP32 cannot decode ordinary H.264 in its available RAM. This tool uses
 OpenCV's FFmpeg backend to decode an input video and write an MJPEG-in-MP4
@@ -249,12 +249,12 @@ def validate_mjpeg_mp4(path: Path, expected_frames: int, expected_fps: float) ->
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert H.264 MP4 to CQualDis-compatible silent MJPEG MP4 plus .cth preview"
+        description="Convert H.264 MP4 to CVideo-compatible silent MJPEG MP4 plus .cth preview"
     )
     parser.add_argument("input", type=Path, help="source MP4 (usually H.264)")
     parser.add_argument(
         "-o", "--output", type=Path,
-        help="output MP4; defaults to INPUT-STEM-CQualDis.mp4",
+        help="output MP4; defaults to INPUT-STEM-CVideo.mp4",
     )
     parser.add_argument(
         "--fps", type=float, default=12.0,
@@ -379,12 +379,12 @@ def convert(source: Path, output: Path, thumbnail: Path, fps_limit: float, force
 def main() -> int:
     args = parse_args()
     source = path_identity(args.input)
-    output = path_identity(args.output or source.with_name(f"{source.stem}-CQualDis.mp4"))
+    output = path_identity(args.output or source.with_name(f"{source.stem}-CVideo.mp4"))
     thumbnail = path_identity(args.thumbnail or output.with_suffix(".cth"))
     try:
         frames, fps = convert(source, output, thumbnail, args.fps, args.force)
     except (OSError, ValueError) as exc:
-        print(f"CQualDis conversion failed: {exc}", file=sys.stderr)
+        print(f"CVideo conversion failed: {exc}", file=sys.stderr)
         return 1
     print(f"Video: {output} ({frames} frames, {fps:g} fps, {output.stat().st_size:,} bytes)")
     print(f"Preview: {thumbnail} ({thumbnail.stat().st_size:,} bytes)")

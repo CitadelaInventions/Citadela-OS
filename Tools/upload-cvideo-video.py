@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Upload a prepared CQualDis MP4 and its .cth preview over USB serial.
+"""Upload a prepared CVideo MP4 and its .cth preview over USB serial.
 
 Requirements: pyserial and opencv-python. Convert H.264 source files first with
-prepare-cqualdis-video.py. The player must already be running on the Citadela.
+prepare-cvideo-video.py. The player must already be running on the Citadela.
 The device refuses to overwrite an existing destination file.
 
 Protocol (115200 baud, DTR/RTS off): PING/PONG, PUT filename size CRC32,
@@ -43,7 +43,7 @@ class UploadError(Exception):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Upload prepared CQualDis MJPEG MP4 and matching .cth over USB"
+        description="Upload prepared CVideo MJPEG MP4 and matching .cth over USB"
     )
     parser.add_argument("video", type=Path, help="prepared MJPEG MP4")
     parser.add_argument(
@@ -100,10 +100,10 @@ def validate_video(path: Path) -> None:
     if not 0 < size <= MAX_FILE_SIZE:
         raise UploadError("Video is empty or exceeds the USB transfer limit (2 GiB)")
 
-    converter = Path(__file__).with_name("prepare-cqualdis-video.py")
+    converter = Path(__file__).with_name("prepare-cvideo-video.py")
     if not converter.is_file():
         raise UploadError(f"Converter validator is missing: {converter}")
-    spec = importlib.util.spec_from_file_location("cqualdis_video_prepare", converter)
+    spec = importlib.util.spec_from_file_location("cvideo_video_prepare", converter)
     if spec is None or spec.loader is None:
         raise UploadError("Cannot load converter validator")
     module = importlib.util.module_from_spec(spec)
@@ -173,8 +173,8 @@ class Device:
                 continue
             line = raw.decode("ascii", errors="replace").strip()
             if line:
-                if line == "CQUALDIS PUT_ERROR" or line.startswith("CQUALDIS PUT_ERROR "):
-                    raise UploadError(line.removeprefix("CQUALDIS PUT_ERROR ") or
+                if line == "CVIDEO PUT_ERROR" or line.startswith("CVIDEO PUT_ERROR "):
+                    raise UploadError(line.removeprefix("CVIDEO PUT_ERROR ") or
                                       "The player refused the upload")
                 return line
         return None
@@ -192,20 +192,20 @@ class Device:
     def ping(self) -> None:
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            self.send_line("CQUALDIS PING")
+            self.send_line("CVIDEO PING")
             short_deadline = min(deadline, time.monotonic() + 1)
             while time.monotonic() < short_deadline:
                 line = self.read_line(short_deadline)
-                if line == "CQUALDIS PONG":
+                if line == "CVIDEO PONG":
                     return
-        raise UploadError("CQualDis did not respond; launch the app and check the USB port")
+        raise UploadError("CVideo did not respond; launch the app and check the USB port")
 
     def upload(self, source: Path, basename: str) -> None:
         size, crc = crc32_file(source)
         print(f"Uploading {basename}: {size:,} bytes, CRC32 {crc:08X}")
-        self.send_line(f"CQUALDIS PUT {basename} {size} {crc:08X}")
-        ready = self.wait_for("CQUALDIS PUT_READY ", 10)
-        if ready != f"CQUALDIS PUT_READY {CHUNK_SIZE}":
+        self.send_line(f"CVIDEO PUT {basename} {size} {crc:08X}")
+        ready = self.wait_for("CVIDEO PUT_READY ", 10)
+        if ready != f"CVIDEO PUT_READY {CHUNK_SIZE}":
             raise UploadError(f"Unexpected transfer setup: {ready}")
         sent = 0
         last_progress = 0.0
@@ -218,15 +218,15 @@ class Device:
                     raise UploadError("Short serial data write")
                 self.connection.flush()
                 sent += len(chunk)
-                ack = self.wait_for("CQUALDIS ACK ", 15)
-                if ack != f"CQUALDIS ACK {sent}":
+                ack = self.wait_for("CVIDEO ACK ", 15)
+                if ack != f"CVIDEO ACK {sent}":
                     raise UploadError(f"Unexpected byte acknowledgement: {ack}")
                 now = time.monotonic()
                 if sent == size or now - last_progress >= 1.0:
                     print(f"  {sent:,}/{size:,} bytes ({sent * 100 / size:.1f}%)", flush=True)
                     last_progress = now
-        done = self.wait_for("CQUALDIS PUT_DONE ", 30)
-        expected = f"CQUALDIS PUT_DONE {basename} {size} {crc:08X}"
+        done = self.wait_for("CVIDEO PUT_DONE ", 30)
+        expected = f"CVIDEO PUT_DONE {basename} {size} {crc:08X}"
         if done != expected:
             raise UploadError(f"Unexpected completion response: {done}")
         print(f"Verified {basename}")
@@ -241,17 +241,17 @@ def main() -> int:
         validate_thumbnail(preview)
         validate_video(video)
         port = choose_port(args.port)
-        print(f"CQualDis USB port: {port}")
+        print(f"CVideo USB port: {port}")
         with Device(port) as device:
             device.ping()
             # Send the video first. If its name already exists, the device
             # refuses it before any preview changes on the SD card.
             device.upload(video, names[0])
             device.upload(preview, names[1])
-        print("Upload complete. Press R in the CQualDis browser to rescan /Videos.")
+        print("Upload complete. Press R in the CVideo browser to rescan /Videos.")
         return 0
     except (OSError, ValueError, UploadError, serial.SerialException) as exc:
-        print(f"CQualDis upload failed: {exc}", file=sys.stderr)
+        print(f"CVideo upload failed: {exc}", file=sys.stderr)
         return 1
 
 

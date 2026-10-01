@@ -1,129 +1,120 @@
 #include <Arduino.h>
 #include <ESP32Video.h>
-#include <JPEGDEC.h>
-#include <Ressources/Font6x8.h>
 #include <SD.h>
 #include <SPI.h>
 #include <SPIFFS.h>
 #include <Update.h>
 #include <esp_heap_caps.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
-#include <freertos/task.h>
 #include <string.h>
+#include "../../../System/Libraries/CitadelaDisplay.h"
 #include "../../../System/Libraries/CitadelaSerialCommands.h"
 #include "../../../System/Libraries/CitadelaStorage.h"
-#include "CQualDisMp4.h"
+#include "fonts/InterMono.h"
+#include "CQualDis3D.h"
 
-// CImage's PAL4x low-memory colour mode: one indexed 376 x 192 framebuffer.
-static constexpr int SCREEN_W = 376;
-static constexpr int SCREEN_H = 192;
+static constexpr int WIDTH = 1645;
+static constexpr int HEIGHT = 288;
 static constexpr int VIDEO_PIN = 25;
-static constexpr int MAX_VIDEOS = 32;
-static constexpr int STRIPE_H = 16;
-static constexpr int THUMB_W = 80;
-static constexpr int THUMB_H = 45;
-static constexpr const char *VIDEO_DIR = "/Videos";
+static constexpr int MAX_ITERATIONS = 72;
 static constexpr const char *BOOT_STATE_PATH = "/evil.txt";
+static constexpr int TOP_BAR = 30;
+static constexpr int FOOTER_TOP = HEIGHT - 35;
 
-static CompositeColorDAC video;
-// JPEGDEC owns a large working structure. Reserving it before video.init()
-// avoids requiring one contiguous heap block after the PAL framebuffer starts.
-static JPEGDEC decoder;
+enum Scene : uint8_t { FRACTAL, LETTERING, ETCHING, KNOT, GYROSCOPE, SCENE_COUNT };
+static const char *const SCENE_NAMES[] = {
+    "FRACTAL CONTOURS", "TYPE SPECIMEN", "MICRO ETCHING",
+    "TREFOIL KNOT 3D", "ORBITAL GYROSCOPE 3D"
+};
+
+static Citadela::CitCompositeColorDAC video;
 static Citadela::LineReader controllerInput(128);
 static Citadela::LineReader usbInput(128);
 static Citadela::VideoProgressSerial controllerVideo(Serial1, 120);
 static bool videoReady = false;
 static bool spiffsReady = false;
-static bool sdReady = false;
-
-enum Page : uint8_t { BROWSER, OPENING, PLAYING, STOPPING };
-static Page page = BROWSER;
-
-struct VideoItem {
-    char name[72];
-    char path[104];
-    char thumbPath[104];
-    bool hasPreview;
-};
-static VideoItem videos[MAX_VIDEOS];
-static int videoCount = 0;
-static int selected = 0;
-static char browserStatus[80] = "Select a prepared video";
-static uint8_t thumbnail[THUMB_W * THUMB_H];
-
-// The PAL interrupt runs on core 1, where setup() initializes the display.
-// Core 0 decodes JPEG MCUs into two bounded stripes. Core 1 commits only
-// palette bytes that differ from the displayed framebuffer.
-struct StripeBuffer { uint8_t index[SCREEN_W * STRIPE_H]; };
-static StripeBuffer stripes[2];
-static QueueHandle_t freeStripes = nullptr;
-static QueueHandle_t readyEvents = nullptr;
-static TaskHandle_t decodeTaskHandle = nullptr;
-static volatile bool stopRequested = false;
-static volatile bool decodeTaskDone = true;
-static char playPath[104];
-
-enum EventKind : uint8_t {
-    EVENT_OPEN, EVENT_FRAME_START, EVENT_STRIPE, EVENT_FRAME_END,
-    EVENT_FINISHED, EVENT_ERROR
-};
-struct PlayerEvent {
-    EventKind kind;
-    uint8_t stripe;
-    uint16_t y;
-    uint32_t frame;
-    uint32_t ptsMs;
-    char message[64];
-};
-static bool pendingEventValid = false;
-static PlayerEvent pendingEvent;
-static uint32_t playbackStartedMs = 0;
-static uint32_t playbackDurationMs = 0;
-static uint32_t pausedAtMs = 0;
-static uint32_t frameChangedBytes = 0;
-static uint32_t totalFrames = 0;
-static uint32_t expectedFrames = 0;
-static volatile bool paused = false;
-static bool pauseAfterFrame = false;
-static bool frameInProgress = false;
-
-// The cursor is kept out of the moving picture. The browser restores exact
-// underlying palette values before a redraw or a page transition.
+static float centerReal = -0.65f;
+static float centerImaginary = 0.0f;
+static float viewHeight = 2.35f;
+static int nextRow = 0;
+static uint32_t renderStarted = 0;
+static Scene scene = FRACTAL;
+static bool is3DScene() { return scene == KNOT || scene == GYROSCOPE; }
+static Scene displayedScene = SCENE_COUNT;
+static bool frameComplete = false;
+static float objectYaw = 0.45f;
+static float objectPitch = -0.25f;
+static float objectZoom = 1.0f;
+static float displayedCenterReal = 0.0f;
+static float displayedCenterImaginary = 0.0f;
+static float displayedViewHeight = 0.0f;
+static float displayedYaw = 0.0f;
+static float displayedPitch = 0.0f;
+static float displayedZoom = 0.0f;
+static bool modelCanvasValid = false;
+static bool captionReusable = false;
+static bool modelInputDirty = false;
+static CQualDis3D::IncrementalStats modelStats = {false, 0, 0};
+static bool ridgesReady = false;
 static bool mouseSeen = false;
-static bool cursorShown = false;
 static bool mouseLeftDown = false;
-static int mouseX = SCREEN_W / 2;
-static int mouseY = SCREEN_H / 2;
-static uint16_t cursorUnder[25];
+static bool mouseOrbitLatched = false;
+static bool cursorShown = false;
+static int mouseControllerX = 188;
+static int mouseControllerY = 142;
+static int cursorX = WIDTH / 2;
+static int cursorY = HEIGHT / 2;
+static constexpr int CURSOR_RADIUS = 4;
+static constexpr int CURSOR_SCALE_X = 4;
+static constexpr int CURSOR_DIAMETER = CURSOR_RADIUS * 2 + 1;
+static uint8_t cursorUnder[CURSOR_DIAMETER * CURSOR_DIAMETER * CURSOR_SCALE_X];
+static uint32_t crcTable[256];
+static int16_t farRidge[WIDTH];
+static int16_t nearRidge[WIDTH];
+static int16_t cloudLineA[WIDTH];
+static int16_t cloudLineB[WIDTH];
 
-static uint16_t &rawPixel(int x, int y) {
-    return video.backBuffer[video.graphics_swy(y)][video.graphics_swx(x)];
+// The system cursor is a small contrasting ring. Save the exact background
+// bits so mouse motion never alters the scene or its reported framebuffer CRC.
+static bool cursorPoint(int dx, int dy) {
+    const int distance2 = dx * dx + dy * dy;
+    return distance2 >= 5 && distance2 <= 18;
 }
 
 static void restoreCursor() {
     if (!cursorShown || !videoReady) return;
-    int at = 0;
-    for (int dy = -2; dy <= 2; ++dy) {
-        for (int dx = -2; dx <= 2; ++dx, ++at) {
-            const int x = mouseX + dx, y = mouseY + dy;
-            if ((unsigned)x < SCREEN_W && (unsigned)y < SCREEN_H)
-                rawPixel(x, y) = cursorUnder[at];
+    for (int dy = -CURSOR_RADIUS; dy <= CURSOR_RADIUS; ++dy) {
+        const int py = cursorY + dy;
+        if ((unsigned)py >= HEIGHT) continue;
+        for (int dx = -CURSOR_RADIUS; dx <= CURSOR_RADIUS; ++dx) {
+            if (!cursorPoint(dx, dy)) continue;
+            for (int sub = 0; sub < CURSOR_SCALE_X; ++sub) {
+                const int px = cursorX + dx * CURSOR_SCALE_X + sub;
+                if ((unsigned)px >= WIDTH) continue;
+                const int offset = ((dy + CURSOR_RADIUS) * CURSOR_DIAMETER +
+                                    dx + CURSOR_RADIUS) * CURSOR_SCALE_X + sub;
+                video.mono1Pixel(px, py, cursorUnder[offset] != 0);
+            }
         }
     }
     cursorShown = false;
 }
 
 static void drawCursor() {
-    if (!videoReady || page != BROWSER || !mouseSeen || cursorShown) return;
-    int at = 0;
-    for (int dy = -2; dy <= 2; ++dy) {
-        for (int dx = -2; dx <= 2; ++dx, ++at) {
-            const int x = mouseX + dx, y = mouseY + dy;
-            if ((unsigned)x >= SCREEN_W || (unsigned)y >= SCREEN_H) continue;
-            cursorUnder[at] = rawPixel(x, y);
-            if (dx == 0 || dy == 0)
-                rawPixel(x, y) = (uint16_t)31 << 8;
+    if (!videoReady || !mouseSeen || !frameComplete || cursorShown) return;
+    for (int dy = -CURSOR_RADIUS; dy <= CURSOR_RADIUS; ++dy) {
+        const int py = cursorY + dy;
+        if ((unsigned)py >= HEIGHT) continue;
+        for (int dx = -CURSOR_RADIUS; dx <= CURSOR_RADIUS; ++dx) {
+            if (!cursorPoint(dx, dy)) continue;
+            for (int sub = 0; sub < CURSOR_SCALE_X; ++sub) {
+                const int px = cursorX + dx * CURSOR_SCALE_X + sub;
+                if ((unsigned)px >= WIDTH) continue;
+                const int offset = ((dy + CURSOR_RADIUS) * CURSOR_DIAMETER +
+                                    dx + CURSOR_RADIUS) * CURSOR_SCALE_X + sub;
+                const bool under = video.mono1PixelAt(px, py);
+                cursorUnder[offset] = under;
+                video.mono1Pixel(px, py, !under);
+            }
         }
     }
     cursorShown = true;
@@ -131,10 +122,10 @@ static void drawCursor() {
 
 static bool writeBootState(const char *state) {
     if (!spiffsReady) return false;
-    SPIFFS.remove(BOOT_STATE_PATH);
+    SPIFFS.remove(BOOT_STATE_PATH); // FILE_WRITE appends on this ESP32 core.
     File file = SPIFFS.open(BOOT_STATE_PATH, FILE_WRITE);
     if (!file) return false;
-    const bool ok = file.println(state) > 0;
+    bool ok = file.println(state) > 0;
     file.close();
     return ok;
 }
@@ -158,33 +149,33 @@ static bool mountSD() {
 
 static void flashKernel() {
     if (!mountSD()) {
-        Serial.println("CQUALDIS RETURN FAILED: SD mount");
+        Serial.println("MONO RETURN FAILED: SD mount");
         return;
     }
     File image = SD.open("/System/kernel.bin", FILE_READ);
     const size_t bytes = image ? image.size() : 0;
     if (!image || bytes < 32768 || image.read() != 0xE9 || !image.seek(0)) {
         if (image) image.close();
+        Serial.println("MONO RETURN FAILED: invalid kernel image");
         SD.end();
-        Serial.println("CQUALDIS RETURN FAILED: invalid kernel image");
         return;
     }
     controllerVideo.appFlashStart(bytes, "Returning to Citadela OS");
     if (!Update.begin(bytes, U_FLASH)) {
         image.close();
         SD.end();
-        Serial.printf("CQUALDIS RETURN FAILED: %s\n", Update.errorString());
+        Serial.printf("MONO RETURN FAILED: %s\n", Update.errorString());
         return;
     }
     uint8_t buffer[2048];
     size_t written = 0;
     while (written < bytes) {
-        const int count = image.read(buffer, min(sizeof(buffer), bytes - written));
+        int count = image.read(buffer, min(sizeof(buffer), bytes - written));
         if (count <= 0 || Update.write(buffer, count) != (size_t)count) {
             Update.abort();
             image.close();
             SD.end();
-            Serial.println("CQUALDIS RETURN FAILED: write");
+            Serial.println("MONO RETURN FAILED: write");
             return;
         }
         written += count;
@@ -194,7 +185,7 @@ static void flashKernel() {
     image.close();
     if (!Update.end(true)) {
         SD.end();
-        Serial.printf("CQUALDIS RETURN FAILED: %s\n", Update.errorString());
+        Serial.printf("MONO RETURN FAILED: %s\n", Update.errorString());
         return;
     }
     SD.end();
@@ -205,12 +196,12 @@ static void flashKernel() {
 
 static void returnToKernel() {
     if (!writeBootState("trueKernel")) {
-        Serial.println("CQUALDIS EXIT FAILED: boot marker unavailable");
+        Serial.println("MONO EXIT FAILED: boot marker unavailable");
         return;
     }
     restoreCursor();
     controllerVideo.prepare("Returning to Citadela OS", 0);
-    if (videoReady) video.i2sStop();
+    if (videoReady) video.releaseVideoMemory();
     videoReady = false;
     pinMode(VIDEO_PIN, INPUT_PULLDOWN);
     Serial1.println("VDINIT");
@@ -219,773 +210,508 @@ static void returnToKernel() {
     ESP.restart();
 }
 
-static bool endsWithMp4(const char *name) {
-    const size_t length = strlen(name);
-    if (length < 5) return false;
-    const char *ext = name + length - 4;
-    return ext[0] == '.' && (ext[1] == 'm' || ext[1] == 'M') &&
-           (ext[2] == 'p' || ext[2] == 'P') && ext[3] == '4';
+static void strokeLine(int x0, int y0, int x1, int y1, bool white = true,
+                       int weight = 1) {
+    const int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    const int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    int error = dx + dy;
+    for (;;) {
+        video.mono1Pixel(x0, y0, white);
+        if (weight > 1) video.mono1Pixel(x0 + 1, y0, white);
+        if (x0 == x1 && y0 == y1) break;
+        const int e2 = 2 * error;
+        if (e2 >= dy) { error += dy; x0 += sx; }
+        if (e2 <= dx) { error += dx; y0 += sy; }
+    }
 }
 
-static void scanVideos() {
-    videoCount = 0;
-    selected = 0;
-    if (!sdReady) {
-        snprintf(browserStatus, sizeof(browserStatus), "SD card unavailable");
+static void prepareRidges() {
+    for (int x = 0; x < WIDTH; ++x) {
+        const float u = (float)x / WIDTH;
+        farRidge[x] = (int16_t)(120 + 17 * sinf(u * 17.3f) +
+            9 * sinf(u * 51.7f) + 4 * sinf(u * 127.0f));
+        nearRidge[x] = (int16_t)(175 + 19 * sinf(u * 14.1f + 1.7f) +
+            8 * sinf(u * 43.0f) + 3 * sinf(u * 123.0f));
+        cloudLineA[x] = (int16_t)(66 + 8 * sinf(u * 16.1f));
+        cloudLineB[x] = (int16_t)(94 + 5 * sinf(u * 31.0f + 1.8f));
+    }
+}
+
+static void beginRender() {
+    if (!videoReady) return;
+    if (frameComplete && displayedScene == scene) {
+        const bool unchanged = scene == FRACTAL ?
+            centerReal == displayedCenterReal &&
+            centerImaginary == displayedCenterImaginary &&
+            viewHeight == displayedViewHeight :
+            is3DScene() ?
+            objectYaw == displayedYaw &&
+            objectPitch == displayedPitch &&
+            objectZoom == displayedZoom : true;
+        if (unchanged) {
+            drawCursor();
+            Serial.printf("MONO SKIP mode=%u unchanged\n", (unsigned)scene);
+            return;
+        }
+    }
+    restoreCursor();
+    captionReusable = is3DScene() && modelCanvasValid &&
+                      displayedScene == scene;
+    if (!captionReusable) video.mono1Clear(false);
+    if (!is3DScene() || displayedScene != scene) modelCanvasValid = false;
+    nextRow = 0;
+    renderStarted = millis();
+    frameComplete = false;
+    if (scene == ETCHING && !ridgesReady) {
+        prepareRidges();
+        ridgesReady = true;
+    }
+    Serial.printf("MONO MODE %u %s\n", (unsigned)scene, SCENE_NAMES[scene]);
+}
+
+static void renderMandelbrotRow(int y) {
+    uint8_t *row = video.mono1Row(y);
+    if (!row) return;
+    if (centerImaginary == 0.0f && y >= HEIGHT / 2) {
+        memcpy(row, video.mono1Row(HEIGHT - 1 - y), video.mono1Stride());
         return;
     }
-    File directory = SD.open(VIDEO_DIR, FILE_READ);
-    if (!directory || !directory.isDirectory()) {
-        if (directory) directory.close();
-        snprintf(browserStatus, sizeof(browserStatus), "Create /Videos on the SD card");
-        return;
-    }
-    while (videoCount < MAX_VIDEOS) {
-        File entry = directory.openNextFile();
-        if (!entry) break;
-        if (!entry.isDirectory()) {
-            const char *fullName = entry.name();
-            const char *base = strrchr(fullName, '/');
-            base = base ? base + 1 : fullName;
-            if (endsWithMp4(base)) {
-                VideoItem &item = videos[videoCount];
-                const int n = snprintf(item.path, sizeof(item.path),
-                                       "%s/%s", VIDEO_DIR, base);
-                if (n > 0 && n < (int)sizeof(item.path) &&
-                    strlen(base) < sizeof(item.name)) {
-                    strlcpy(item.name, base, sizeof(item.name));
-                    strlcpy(item.thumbPath, item.path, sizeof(item.thumbPath));
-                    char *extension = strrchr(item.thumbPath, '.');
-                    if (extension && (size_t)(extension - item.thumbPath) + 4 <
-                                         sizeof(item.thumbPath)) {
-                        strcpy(extension, ".cth");
-                        item.hasPreview = SD.exists(item.thumbPath);
-                        ++videoCount;
-                    }
+    const float imaginary = centerImaginary +
+        ((float)y + 0.5f - HEIGHT * 0.5f) * viewHeight / HEIGHT;
+    const float step = viewHeight * (4.0f / 3.0f) / WIDTH;
+    float real = centerReal - step * (WIDTH * 0.5f - 0.5f);
+    const float imaginarySquared = imaginary * imaginary;
+    for (int byte = 0; byte < video.mono1Stride(); ++byte) {
+        uint8_t packed = 0;
+        for (int bit = 0; bit < 8; ++bit) {
+            int x = byte * 8 + bit;
+            if (x >= WIDTH) break;
+            float zr = 0.0f, zi = 0.0f;
+            int iterations = MAX_ITERATIONS;
+            const float bulbReal = real + 1.0f;
+            const float cardioidReal = real - 0.25f;
+            const float q = cardioidReal * cardioidReal + imaginarySquared;
+            if (bulbReal * bulbReal + imaginarySquared > 0.0625f &&
+                q * (q + cardioidReal) > 0.25f * imaginarySquared) {
+                iterations = 0;
+                while (iterations < MAX_ITERATIONS && zr * zr + zi * zi < 64.0f) {
+                    const float nextReal = zr * zr - zi * zi + real;
+                    zi = 2.0f * zr * zi + imaginary;
+                    zr = nextReal;
+                    ++iterations;
                 }
             }
+            // Alternating escape bands give fine black-and-white contours.
+            if (iterations < MAX_ITERATIONS && (iterations % 6) < 3)
+                packed |= (uint8_t)(0x80U >> bit);
+            real += step;
         }
-        entry.close();
-    }
-    directory.close();
-    snprintf(browserStatus, sizeof(browserStatus), videoCount ?
-             "%d video%s found in /Videos" : "No MP4 files in /Videos",
-             videoCount, videoCount == 1 ? "" : "s");
-    Serial.printf("CQUALDIS SCAN videos=%d heap=%u\n",
-                  videoCount, (unsigned)ESP.getFreeHeap());
-}
-
-static uint32_t color(uint8_t r, uint8_t g, uint8_t b) {
-    return video.RGB(r, g, b);
-}
-
-static void textAt(int x, int y, const char *label, uint32_t foreground,
-                   uint32_t background) {
-    video.setFont(Font6x8);
-    video.setTextColor(foreground, background);
-    video.setCursor(x, y);
-    video.print(label);
-}
-
-static void shortTitle(const char *name, char *out, size_t capacity) {
-    strlcpy(out, name, capacity);
-    char *dot = strrchr(out, '.');
-    if (dot) *dot = 0;
-    const size_t limit = 29;
-    if (strlen(out) > limit) {
-        out[limit - 2] = '.';
-        out[limit - 1] = '.';
-        out[limit] = 0;
+        row[byte] = packed;
     }
 }
 
-static bool drawPreview(const VideoItem &item, int x, int y,
-                        int width, int height) {
-    if (!item.hasPreview) return false;
-    File file = SD.open(item.thumbPath, FILE_READ);
-    if (!file) return false;
-    uint8_t header[8];
-    const bool valid = file.read(header, sizeof(header)) == sizeof(header) &&
-                       memcmp(header, "CQTH", 4) == 0 &&
-                       ((unsigned)header[4] | ((unsigned)header[5] << 8)) == THUMB_W &&
-                       ((unsigned)header[6] | ((unsigned)header[7] << 8)) == THUMB_H &&
-                       file.read(thumbnail, sizeof(thumbnail)) == sizeof(thumbnail);
-    file.close();
-    if (!valid) return false;
-    for (int dy = 0; dy < height; ++dy) {
-        const int sourceY = dy * THUMB_H / height;
-        for (int dx = 0; dx < width; ++dx) {
-            const int sourceX = dx * THUMB_W / width;
-            rawPixel(x + dx, y + dy) =
-                (uint16_t)thumbnail[sourceY * THUMB_W + sourceX] << 8;
+static uint32_t pixelHash(uint32_t x, uint32_t y) {
+    uint32_t v = x * 0x9E3779B1U + y * 0x85EBCA77U + 0xC2B2AE3DU;
+    v ^= v >> 16;
+    v *= 0x7FEB352DU;
+    return v ^ (v >> 15);
+}
+
+static void renderEtchingRow(int y) {
+    uint8_t *row = video.mono1Row(y);
+    if (!row) return;
+    const int moonX = WIDTH * 76 / 100;
+    const int moonY = 78;
+    const int moonRadius = 39;
+    for (int byte = 0; byte < video.mono1Stride(); ++byte) {
+        uint8_t packed = 0;
+        for (int bit = 0; bit < 8; ++bit) {
+            const int x = byte * 8 + bit;
+            if (x >= WIDTH) break;
+            const uint32_t noise = pixelHash((uint32_t)x, (uint32_t)y);
+            bool black = false;
+            const int dx = x - moonX, dy = y - moonY;
+            const int moonDistance = dx * dx + dy * dy;
+            if (moonDistance < moonRadius * moonRadius) {
+                black = moonDistance > (moonRadius - 2) * (moonRadius - 2) ||
+                    ((noise & 127U) < 2 && moonDistance < 980);
+            } else if (y < farRidge[x]) {
+                // Hairline cloud contours and sparse sky stipple.
+                black = ((x < WIDTH * 58 / 100 && y == cloudLineA[x]) ||
+                         (x > WIDTH * 30 / 100 && y == cloudLineB[x])) &&
+                        ((noise & 15U) != 0);
+                if ((noise & 8191U) == 7U) black = true;
+            } else if (y < nearRidge[x]) {
+                // Two engraving frequencies keep distant peaks legible.
+                const int depth = y - farRidge[x];
+                black = depth < 2 ||
+                    (((x + 3 * y) % 11) < (depth > 20 ? 3 : 2)) ||
+                    ((noise & 31U) == 0U);
+            } else {
+                const int depth = y - nearRidge[x];
+                if (y < 230) {
+                    black = depth < 2 ||
+                        (((x - 2 * y) % 17 + 17) % 17 < (depth > 25 ? 5 : 3)) ||
+                        ((noise & 15U) == 0U);
+                } else {
+                    // Water reflection: irregular one-pixel horizontal cuts.
+                    black = ((y & 3) == 0 && (noise & 15U) < 11U) ||
+                        ((noise & 31U) == 0U && y < 255);
+                }
+            }
+            if (!black) packed |= (uint8_t)(0x80U >> bit);
+        }
+        row[byte] = packed;
+    }
+}
+
+static void outlineRect(int x, int y, int w, int h) {
+    strokeLine(x, y, x + w - 1, y, false);
+    strokeLine(x, y + h - 1, x + w - 1, y + h - 1, false);
+    strokeLine(x, y, x, y + h - 1, false);
+    strokeLine(x + w - 1, y, x + w - 1, y + h - 1, false);
+}
+
+static void drawObservatory() {
+    const int wingLeft = WIDTH * 24 / 100;
+    const int wingRight = WIDTH * 76 / 100;
+    const int mainLeft = WIDTH * 35 / 100;
+    const int mainRight = WIDTH * 65 / 100;
+    const int center = WIDTH / 2;
+    video.mono1FillRect(wingLeft, 200, wingRight - wingLeft, 46, true);
+    outlineRect(wingLeft, 200, wingRight - wingLeft, 46);
+    video.mono1FillRect(mainLeft, 170, mainRight - mainLeft, 76, true);
+    outlineRect(mainLeft, 170, mainRight - mainLeft, 76);
+    strokeLine(mainLeft - 8, 169, center, 153, false);
+    strokeLine(center, 153, mainRight + 8, 169, false);
+    strokeLine(mainLeft - 8, 169, mainRight + 8, 169, false);
+    for (int x = mainLeft + 9; x < mainRight - 6; x += max(8, WIDTH / 43)) {
+        strokeLine(x, 172, x, 243, false);
+        strokeLine(x + 2, 172, x + 2, 243, false);
+    }
+    strokeLine(wingLeft + 4, 208, wingRight - 4, 208, false);
+    strokeLine(wingLeft + 4, 235, wingRight - 4, 235, false);
+    for (int x = wingLeft + 10; x < wingRight - 10; x += max(12, WIDTH / 34)) {
+        outlineRect(x, 213, 8, 17);
+        strokeLine(x + 4, 213, x + 4, 229, false);
+        strokeLine(x, 221, x + 7, 221, false);
+    }
+    // One-pixel masonry joints under the columns.
+    for (int y = 237; y < 246; y += 4)
+        for (int x = wingLeft + 2 + ((y & 4) ? 7 : 0);
+             x < wingRight - 3; x += 18)
+            strokeLine(x, y, x + 9, y, false);
+
+    const int domeRadiusX = max(28, WIDTH * 7 / 100);
+    const int domeRadiusY = 30;
+    for (int dx = -domeRadiusX; dx <= domeRadiusX; ++dx) {
+        const float fraction = (float)dx / domeRadiusX;
+        const int top = 161 - (int)(domeRadiusY *
+            sqrtf(max(0.0f, 1.0f - fraction * fraction)));
+        video.mono1FillRect(center + dx, top, 1, 161 - top, true);
+        video.mono1Pixel(center + dx, top, false);
+        if ((dx + domeRadiusX) % max(5, WIDTH / 140) == 0)
+            video.mono1Pixel(center + dx, top + 3, false);
+    }
+    strokeLine(center - domeRadiusX - 4, 161, center + domeRadiusX + 4,
+               161, false, 2);
+    strokeLine(center, 132, center, 115, false);
+    strokeLine(center - 9, 123, center + 9, 123, false);
+    for (int side = -1; side <= 1; side += 2) {
+        const int towerX = center + side * WIDTH * 23 / 100;
+        video.mono1FillRect(towerX - 18, 164, 36, 80, true);
+        outlineRect(towerX - 18, 164, 36, 80);
+        strokeLine(towerX - 23, 164, towerX, 147, false);
+        strokeLine(towerX, 147, towerX + 23, 164, false);
+        outlineRect(towerX - 5, 178, 10, 22);
+        strokeLine(towerX - 5, 188, towerX + 4, 188, false);
+        for (int y = 209; y < 239; y += 8)
+            strokeLine(towerX - 12, y, towerX + 11, y, false);
+    }
+    // Dense etched conifers frame the architecture without a bitmap asset.
+    for (int i = 0; i < 25; ++i) {
+        const int left = i < 13;
+        const int local = left ? i : i - 13;
+        const int x = left ? WIDTH * (4 + 15 * local / 13) / 100
+                           : WIDTH * (80 + 17 * local / 12) / 100;
+        const int base = 220 + (int)(pixelHash(i, 19) % 26U);
+        const int height = 20 + (int)(pixelHash(i, 83) % 34U);
+        strokeLine(x, base, x, base - height, false);
+        for (int branch = 5; branch < height; branch += 5) {
+            const int spread = (height - branch) / 3 + 2;
+            strokeLine(x, base - branch, x - spread, base - branch + 8, false);
+            strokeLine(x, base - branch, x + spread, base - branch + 8, false);
         }
     }
+}
+
+static void drawLettering() {
+    video.mono1FillRect(0, TOP_BAR, WIDTH, FOOTER_TOP - TOP_BAR, true);
+    CMonoFont::draw(video, 26, 68, "ABCDEFGHIJKLM",
+                    CMonoFont::Large, false, 1, 4);
+    CMonoFont::draw(video, 26, 109, "NOPQRSTUVWXYZ",
+                    CMonoFont::Large, false, 1, 4);
+    CMonoFont::draw(video, 26, 151, "abcdefghijklm",
+                    CMonoFont::Large, false, 6, 4);
+    CMonoFont::draw(video, 26, 193, "nopqrstuvwxyz",
+                    CMonoFont::Large, false, 5, 4);
+    CMonoFont::draw(video, 26, 244, "0123456789",
+                    CMonoFont::Large, false, 6, 4);
+}
+
+static void drawCaption() {
+    video.mono1FillRect(0, 0, WIDTH, TOP_BAR, false);
+    video.mono1FillRect(0, TOP_BAR - 1, WIDTH, 1, true);
+    video.mono1FillRect(0, FOOTER_TOP, WIDTH, 1, true);
+    video.mono1FillRect(0, FOOTER_TOP + 1, WIDTH,
+                        HEIGHT - FOOTER_TOP - 1, false);
+    CMonoFont::draw(video, 20, 23, "CITADELA",
+                    CMonoFont::Small, true, 1, 3);
+    char sceneLabel[48];
+    snprintf(sceneLabel, sizeof(sceneLabel), "%s  /  %02u",
+             SCENE_NAMES[scene], (unsigned)scene + 1);
+    const int sceneWidth = CMonoFont::measure(sceneLabel, CMonoFont::Small, 1, 3);
+    CMonoFont::draw(video, WIDTH - 20 - sceneWidth, 23, sceneLabel,
+                    CMonoFont::Small, true, 1, 3);
+    const char *hint = scene == FRACTAL ?
+        "TAB MODE   ARROWS PAN   +/- ZOOM" :
+        is3DScene() ?
+        "TAB MODE   ROTATE   +/- ZOOM   ESC" :
+        "TAB MODE   ESC EXIT   1 BIT/PIXEL";
+    CMonoFont::draw(video, 20, HEIGHT - 9, hint,
+                    CMonoFont::Small, true, 1, 3);
+}
+
+static void prepareCRCTable() {
+    for (uint32_t index = 0; index < 256; ++index) {
+        uint32_t value = index;
+        for (int bit = 0; bit < 8; ++bit)
+            value = (value >> 1) ^ ((value & 1U) ? 0xEDB88320U : 0U);
+        crcTable[index] = value;
+    }
+}
+
+static void reportFrame() {
+    uint32_t crc = 0xFFFFFFFFU;
+    uint32_t whitePixels = 0;
+    const int stride = video.mono1Stride();
+    for (int y = 0; y < HEIGHT; ++y) {
+        const uint8_t *row = video.mono1Row(y);
+        for (int byte = 0; byte < stride; ++byte) {
+            const uint8_t value = row[byte];
+            whitePixels += __builtin_popcount((unsigned)value);
+            crc = (crc >> 8) ^ crcTable[(crc ^ value) & 0xffU];
+        }
+    }
+    displayedScene = scene;
+    displayedCenterReal = centerReal;
+    displayedCenterImaginary = centerImaginary;
+    displayedViewHeight = viewHeight;
+    displayedYaw = objectYaw;
+    displayedPitch = objectPitch;
+    displayedZoom = objectZoom;
+    frameComplete = true;
+    Serial.printf("MONO FRAME mode=%u name=%s complete in %lu ms crc32=%08lX white=%lu\n",
+        (unsigned)scene, SCENE_NAMES[scene],
+        (unsigned long)(millis() - renderStarted),
+        (unsigned long)(crc ^ 0xFFFFFFFFU), (unsigned long)whitePixels);
+    if (is3DScene())
+        Serial.printf("MONO DELTA ok=%u changedBytes=%lu changedPixels=%lu\n",
+            modelStats.ok ? 1U : 0U,
+            (unsigned long)modelStats.changedBytes,
+            (unsigned long)modelStats.changedPixels);
+    drawCursor();
+}
+
+static void dumpFrame() {
+    if (!frameComplete) {
+        Serial.println("MONO DUMP WAIT: frame incomplete");
+        return;
+    }
+    restoreCursor();
+    const int stride = video.mono1Stride();
+    const int bytes = stride * HEIGHT;
+    Serial.printf("MONO DUMP START %d %d %d %d\n", WIDTH, HEIGHT, stride, bytes);
+    for (int y = 0; y < HEIGHT; ++y)
+        Serial.write(video.mono1Row(y), stride);
+    Serial.print("\nMONO DUMP END\n");
+    Serial.flush();
+    drawCursor();
+}
+
+static bool handleMouseReport(const String &line) {
+    if (!line.startsWith("MOUSE ")) return false;
+    int x = mouseControllerX, y = mouseControllerY;
+    int buttons = 0, dx = 0, dy = 0, wheel = 0;
+    if (sscanf(line.c_str(), "MOUSE %d %d %d %d %d %d",
+               &x, &y, &buttons, &dx, &dy, &wheel) < 3) return true;
+    x = constrain(x, 0, 375);
+    y = constrain(y, 0, 284);
+    const int movedX = x - mouseControllerX;
+    const int movedY = y - mouseControllerY;
+    const bool leftDown = (buttons & 1) != 0;
+    restoreCursor();
+    mouseSeen = true;
+    mouseControllerX = x;
+    mouseControllerY = y;
+    cursorX = x * (WIDTH - 1) / 375;
+    cursorY = y * (HEIGHT - 1) / 284;
+    const bool leftPressed = leftDown && !mouseLeftDown;
+    // A click toggles orbit; subsequent motion works after button release.
+    if (is3DScene() && leftPressed)
+        mouseOrbitLatched = !mouseOrbitLatched;
+    if (is3DScene() && mouseOrbitLatched && !leftPressed &&
+        (movedX != 0 || movedY != 0)) {
+        objectYaw += movedX * 0.012f;
+        objectPitch = constrain(objectPitch + movedY * 0.012f, -1.4f, 1.4f);
+        modelInputDirty = true;
+    }
+    mouseLeftDown = leftDown;
+    if (!modelInputDirty) drawCursor();
     return true;
 }
 
-static void drawBrowser() {
-    if (!videoReady) return;
-    restoreCursor();
-    const uint32_t background = color(7, 14, 24);
-    const uint32_t top = color(14, 27, 40);
-    const uint32_t panel = color(19, 34, 46);
-    const uint32_t selectedFill = color(27, 54, 64);
-    const uint32_t accent = color(63, 222, 205);
-    const uint32_t white = color(246, 249, 250);
-    const uint32_t muted = color(153, 174, 184);
-    video.fillRect(0, 0, SCREEN_W, SCREEN_H, background);
-    video.fillRect(0, 0, SCREEN_W, 22, top);
-    video.fillRect(0, 21, SCREEN_W, 1, accent);
-    textAt(10, 7, "CQUALDIS", white, top);
-    textAt(270, 7, "VIDEO PLAYER", accent, top);
-
-    if (videoCount == 0) {
-        textAt(27, 78, "NO VIDEOS READY", white, background);
-        textAt(27, 95, browserStatus, muted, background);
-        textAt(27, 112, "PREPARE MP4S ON YOUR COMPUTER", accent, background);
-    } else {
-        int first = selected - 1;
-        if (first < 0) first = 0;
-        if (first > videoCount - 3) first = max(0, videoCount - 3);
-        for (int card = 0; card < 3; ++card) {
-            const int index = first + card;
-            if (index >= videoCount) break;
-            const int y = 27 + card * 47;
-            const bool active = index == selected;
-            const uint32_t fill = active ? selectedFill : panel;
-            video.fillRect(8, y, 360, 43, fill);
-            video.rect(8, y, 360, 43, active ? accent : color(48, 69, 78));
-            video.fillRect(14, y + 4, 64, 35, color(2, 8, 13));
-            const bool previewValid = drawPreview(videos[index], 14, y + 4, 64, 35);
-            if (!previewValid)
-                textAt(34, y + 18, "MP4", muted, color(2, 8, 13));
-            char title[72];
-            shortTitle(videos[index].name, title, sizeof(title));
-            textAt(89, y + 9, title, active ? white : muted, fill);
-            textAt(89, y + 26, previewValid ?
-                   "PREPARED  /  PRESS ENTER" : "PREVIEW UNAVAILABLE",
-                   active ? accent : muted, fill);
-        }
-    }
-    video.fillRect(0, 170, SCREEN_W, 22, top);
-    video.fillRect(0, 170, SCREEN_W, 1, color(49, 74, 83));
-    textAt(10, 178, "UP/DOWN  SELECT   ENTER  PLAY", white, top);
-    textAt(10, 185, "ESC  KERNEL  /  R  RESCAN", muted, top);
-    drawCursor();
-}
-
-static void drawOpening() {
-    restoreCursor();
-    video.fillRect(0, 0, SCREEN_W, SCREEN_H, color(5, 12, 20));
-    textAt(20, 55, "CQUALDIS", color(77, 223, 205), color(5, 12, 20));
-    textAt(20, 82, "OPENING VIDEO...", color(245, 249, 250), color(5, 12, 20));
-    if (videoCount > 0) {
-        char title[72];
-        shortTitle(videos[selected].name, title, sizeof(title));
-        textAt(20, 102, title,
-               color(153, 174, 184), color(5, 12, 20));
-    }
-}
-
-static bool uploadNameValid(const char *name) {
-    const size_t length = strlen(name);
-    if (length < 5 || length > 63 || name[0] == '.') return false;
-    for (size_t i = 0; i < length; ++i) {
-        const char c = name[i];
-        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-              (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'))
-            return false;
-    }
-    const char *extension = strrchr(name, '.');
-    return extension && (!strcasecmp(extension, ".mp4") ||
-                         !strcasecmp(extension, ".cth"));
-}
-
-static uint32_t updateCRC32(uint32_t crc, const uint8_t *data, size_t length) {
-    for (size_t i = 0; i < length; ++i) {
-        crc ^= data[i];
-        for (int bit = 0; bit < 8; ++bit)
-            crc = (crc >> 1) ^ ((crc & 1U) ? 0xedb88320UL : 0UL);
-    }
-    return crc;
-}
-
-static void receiveFileFromUSB(const String &line) {
-    char name[72] = {};
-    unsigned long bytes = 0;
-    unsigned int expectedCRC = 0;
-    char extra = 0;
-    if (sscanf(line.c_str(), "CQUALDIS PUT %71s %lu %x %c",
-               name, &bytes, &expectedCRC, &extra) != 3 ||
-        !uploadNameValid(name) || bytes == 0 || bytes > 0x7fffffffUL) {
-        Serial.println("CQUALDIS PUT_ERROR BAD_REQUEST");
-        return;
-    }
-    if (page != BROWSER) {
-        Serial.println("CQUALDIS PUT_ERROR BUSY");
-        return;
-    }
-    if (!sdReady) sdReady = mountSD();
-    if (!sdReady || (!SD.exists(VIDEO_DIR) && !SD.mkdir(VIDEO_DIR))) {
-        Serial.println("CQUALDIS PUT_ERROR SD_UNAVAILABLE");
-        return;
-    }
-    char destination[104];
-    snprintf(destination, sizeof(destination), "%s/%s", VIDEO_DIR, name);
-    if (SD.exists(destination)) {
-        Serial.println("CQUALDIS PUT_ERROR EXISTS");
-        return;
-    }
-    const char *temporary = "/Videos/.cqualdis-upload.part";
-    SD.remove(temporary);
-    File output = SD.open(temporary, FILE_WRITE);
-    if (!output) {
-        Serial.println("CQUALDIS PUT_ERROR SD_WRITE");
-        return;
-    }
-    Serial.setTimeout(5000);
-    Serial.println("CQUALDIS PUT_READY 512");
-    uint8_t chunk[512];
-    uint32_t written = 0;
-    uint32_t crc = 0xffffffffUL;
-    bool okay = true;
-    while (written < bytes) {
-        const size_t count = min((size_t)sizeof(chunk), (size_t)(bytes - written));
-        if (Serial.readBytes(chunk, count) != count ||
-            output.write(chunk, count) != count) {
-            okay = false;
-            break;
-        }
-        crc = updateCRC32(crc, chunk, count);
-        written += count;
-        Serial.printf("CQUALDIS ACK %lu\n", (unsigned long)written);
-        yield();
-    }
-    output.flush();
-    output.close();
-    if (!okay || written != bytes || (crc ^ 0xffffffffUL) != expectedCRC) {
-        SD.remove(temporary);
-        Serial.println(okay ? "CQUALDIS PUT_ERROR CRC" :
-                              "CQUALDIS PUT_ERROR TRANSFER");
-        return;
-    }
-    if (!SD.rename(temporary, destination)) {
-        SD.remove(temporary);
-        Serial.println("CQUALDIS PUT_ERROR SD_RENAME");
-        return;
-    }
-    Serial.printf("CQUALDIS PUT_DONE %s %lu %08lX\n", name, bytes,
-                  (unsigned long)(crc ^ 0xffffffffUL));
-    scanVideos();
-    snprintf(browserStatus, sizeof(browserStatus), "Uploaded %s", name);
-    drawBrowser();
-}
-
-static void deleteFileFromUSB(const String &line) {
-    char name[72] = {};
-    char extra = 0;
-    if (sscanf(line.c_str(), "CQUALDIS DELETE %71s %c", name, &extra) != 1 ||
-        !uploadNameValid(name) || page != BROWSER || !sdReady) {
-        Serial.println("CQUALDIS DELETE_ERROR BAD_REQUEST");
-        return;
-    }
-    char path[104];
-    snprintf(path, sizeof(path), "%s/%s", VIDEO_DIR, name);
-    if (!SD.exists(path) || !SD.remove(path)) {
-        Serial.println("CQUALDIS DELETE_ERROR NOT_FOUND");
-        return;
-    }
-    Serial.printf("CQUALDIS DELETED %s\n", name);
-    scanVideos();
-    drawBrowser();
-}
-
-static bool sendEvent(const PlayerEvent &event) {
-    while (!stopRequested) {
-        if (xQueueSend(readyEvents, &event, pdMS_TO_TICKS(20)) == pdTRUE)
-            return true;
-    }
-    return false;
-}
-
-static void sendError(const char *message) {
-    PlayerEvent event = {};
-    event.kind = EVENT_ERROR;
-    strlcpy(event.message, message, sizeof(event.message));
-    // The UI continues draining events while stopping.
-    for (int attempt = 0; attempt < 20; ++attempt) {
-        if (xQueueSend(readyEvents, &event, pdMS_TO_TICKS(20)) == pdTRUE)
-            break;
-    }
-}
-
-struct SampleWindow {
-    File *file;
-    uint32_t offset;
-    uint32_t size;
-    uint32_t position;
-};
-static SampleWindow jpegWindow = {};
-static int activeStripe = -1;
-static int activeStripeY = 0;
-static uint32_t decodingFrame = 0;
-
-static void jpegClose(void *) {}
-
-static int32_t jpegRead(JPEGFILE *, uint8_t *buffer, int32_t length) {
-    if (!jpegWindow.file || length <= 0 || jpegWindow.position >= jpegWindow.size)
-        return 0;
-    const uint32_t available = jpegWindow.size - jpegWindow.position;
-    if ((uint32_t)length > available) length = available;
-    if (!jpegWindow.file->seek(jpegWindow.offset + jpegWindow.position)) return 0;
-    const int result = jpegWindow.file->read(buffer, length);
-    if (result > 0) jpegWindow.position += result;
-    return result;
-}
-
-static int32_t jpegSeek(JPEGFILE *, int32_t position) {
-    if (position < 0 || (uint32_t)position > jpegWindow.size) return 0;
-    jpegWindow.position = position;
-    return 1;
-}
-
-static bool beginStripe(int y) {
-    int slot;
-    while (!stopRequested) {
-        if (xQueueReceive(freeStripes, &slot, pdMS_TO_TICKS(20)) == pdTRUE) {
-            activeStripe = slot;
-            activeStripeY = y;
-            memset(stripes[slot].index, 0, sizeof(stripes[slot].index));
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool flushStripe() {
-    if (activeStripe < 0) return true;
-    PlayerEvent event = {};
-    event.kind = EVENT_STRIPE;
-    event.stripe = activeStripe;
-    event.y = activeStripeY;
-    event.frame = decodingFrame;
-    activeStripe = -1;
-    if (sendEvent(event)) return true;
-    int slot = event.stripe;
-    xQueueSend(freeStripes, &slot, 0);
-    return false;
-}
-
-static uint8_t indexRGB565(uint16_t pixel) {
-    const int r = ((pixel >> 11) & 31) * 255 / 31;
-    const int g = ((pixel >> 5) & 63) * 255 / 63;
-    const int b = (pixel & 31) * 255 / 31;
-    const int maximum = max(r, max(g, b));
-    const int minimum = min(r, min(g, b));
-    if (maximum - minimum <= 6) {
-        const int gray = (19595L * r + 38470L * g + 7471L * b + 0x8000L) >> 16;
-        return (uint8_t)((gray * 31 + 127) / 255);
-    }
-    const int ri = (r * 6 + 127) / 255;
-    const int gi = (g * 7 + 127) / 255;
-    const int bi = (b * 3 + 127) / 255;
-    return (uint8_t)(32 + ((ri * 8 + gi) * 4 + bi));
-}
-
-static int jpegDraw(JPEGDRAW *draw) {
-    if (stopRequested || !draw) return 0;
-    const uint16_t *pixels = draw->pPixels;
-    for (int row = 0; row < draw->iHeight; ++row) {
-        const int y = draw->y + row;
-        if ((unsigned)y >= SCREEN_H) continue;
-        while (y >= activeStripeY + STRIPE_H) {
-            if (!flushStripe() || !beginStripe(activeStripeY + STRIPE_H))
-                return 0;
-        }
-        for (int col = 0; col < draw->iWidth; ++col) {
-            const int x = draw->x + col;
-            if ((unsigned)x >= SCREEN_W) continue;
-            stripes[activeStripe].index[(y - activeStripeY) * SCREEN_W + x] =
-                indexRGB565(pixels[row * draw->iWidth + col]);
-        }
-    }
-    return 1;
-}
-
-static void decodeTask(void *) {
-    File movie = SD.open(playPath, FILE_READ);
-    if (!movie) {
-        sendError("Cannot open video on SD");
-        decodeTaskDone = true;
-        vTaskDelete(nullptr);
-        return;
-    }
-    CQualDisMp4::Reader parser;
-    CQualDisMp4::Metadata metadata = {};
-    if (!parser.open(movie, metadata)) {
-        sendError(parser.errorText());
-        movie.close();
-        decodeTaskDone = true;
-        vTaskDelete(nullptr);
-        return;
-    }
-    if (metadata.width != SCREEN_W || metadata.height != SCREEN_H) {
-        sendError("Prepare video at 376 x 192");
-        movie.close();
-        decodeTaskDone = true;
-        vTaskDelete(nullptr);
-        return;
-    }
-    PlayerEvent opened = {};
-    opened.kind = EVENT_OPEN;
-    opened.frame = metadata.frameCount;
-    opened.ptsMs = metadata.durationMs;
-    if (!sendEvent(opened)) {
-        movie.close();
-        decodeTaskDone = true;
-        vTaskDelete(nullptr);
-        return;
-    }
-    for (uint32_t frame = 0; frame < metadata.frameCount && !stopRequested; ++frame) {
-        CQualDisMp4::Sample sample = {};
-        if (!parser.nextSample(movie, sample)) {
-            sendError(parser.errorText());
-            break;
-        }
-        PlayerEvent start = {};
-        start.kind = EVENT_FRAME_START;
-        start.frame = frame;
-        start.ptsMs = sample.ptsMs;
-        if (!sendEvent(start)) break;
-        jpegWindow = {&movie, sample.offset, sample.size, 0};
-        decodingFrame = frame;
-        activeStripe = -1;
-        activeStripeY = 0;
-        if (!beginStripe(0)) break;
-        const bool openedJpeg = decoder.open(&jpegWindow, sample.size,
-            jpegClose, jpegRead, jpegSeek, jpegDraw);
-        bool decoded = false;
-        if (openedJpeg && decoder.getWidth() == SCREEN_W &&
-            decoder.getHeight() == SCREEN_H &&
-            decoder.getJPEGType() != JPEG_MODE_PROGRESSIVE) {
-            decoder.setPixelType(RGB565_LITTLE_ENDIAN);
-            decoded = decoder.decode(0, 0, 0);
-        }
-        if (openedJpeg) decoder.close();
-        if (!decoded || stopRequested) {
-            if (activeStripe >= 0) {
-                int slot = activeStripe;
-                activeStripe = -1;
-                xQueueSend(freeStripes, &slot, 0);
-            }
-            if (!stopRequested) sendError("JPEG frame decode failed");
-            break;
-        }
-        if (!flushStripe()) break;
-        PlayerEvent end = {};
-        end.kind = EVENT_FRAME_END;
-        end.frame = frame;
-        if (!sendEvent(end)) break;
-    }
-    movie.close();
-    if (!stopRequested) {
-        PlayerEvent done = {};
-        done.kind = EVENT_FINISHED;
-        sendEvent(done);
-    }
-    decodeTaskDone = true;
-    vTaskDelete(nullptr);
-}
-
-static void startPlayback() {
-    if (videoCount == 0 || !sdReady || !decodeTaskDone) return;
-    if (!freeStripes || !readyEvents) {
-        snprintf(browserStatus, sizeof(browserStatus), "Playback queues unavailable");
-        drawBrowser();
-        return;
-    }
-    strlcpy(playPath, videos[selected].path, sizeof(playPath));
-    xQueueReset(freeStripes);
-    xQueueReset(readyEvents);
-    for (int slot = 0; slot < 2; ++slot) xQueueSend(freeStripes, &slot, 0);
-    pendingEventValid = false;
-    stopRequested = false;
-    decodeTaskDone = false;
-    paused = false;
-    pauseAfterFrame = false;
-    frameInProgress = false;
-    totalFrames = 0;
-    expectedFrames = 0;
-    playbackDurationMs = 0;
-    page = OPENING;
-    drawOpening();
-    if (xTaskCreatePinnedToCore(decodeTask, "CQVideoDecode", 8192, nullptr,
-                                1, &decodeTaskHandle, 0) != pdPASS) {
-        decodeTaskDone = true;
-        decodeTaskHandle = nullptr;
-        page = BROWSER;
-        snprintf(browserStatus, sizeof(browserStatus), "Decoder task memory unavailable");
-        drawBrowser();
-    }
-}
-
-static void stopPlayback() {
-    if (page == BROWSER) return;
-    stopRequested = true;
-    paused = false;
-    pauseAfterFrame = false;
-    page = STOPPING;
-    snprintf(browserStatus, sizeof(browserStatus), "Playback stopped");
-}
-
-static uint32_t commitStripe(uint8_t slot, int firstY) {
-    if (slot >= 2 || firstY < 0 || firstY + STRIPE_H > SCREEN_H)
-        return 0;
-    uint32_t changed = 0;
-    for (int dy = 0; dy < STRIPE_H; ++dy) {
-        const int y = firstY + dy;
-        auto *row = video.backBuffer[video.graphics_swy(y)];
-        const uint8_t *source = stripes[slot].index + dy * SCREEN_W;
-        for (int x = 0; x < SCREEN_W; ++x) {
-            uint16_t &pixel = row[video.graphics_swx(x)];
-            const uint8_t after = source[x];
-            if ((uint8_t)(pixel >> 8) != after) {
-                pixel = (uint16_t)after << 8;
-                ++changed;
-            }
-        }
-    }
-    return changed;
-}
-
-static void finishPlayback(const char *message) {
-    page = BROWSER;
-    decodeTaskHandle = nullptr;
-    pendingEventValid = false;
-    if (message != browserStatus)
-        snprintf(browserStatus, sizeof(browserStatus), "%s", message);
-    drawBrowser();
-}
-
-static void processPlayback() {
-    if (page == BROWSER) return;
-    if (page == STOPPING) {
-        PlayerEvent event;
-        while (xQueueReceive(readyEvents, &event, 0) == pdTRUE) {
-            if (event.kind == EVENT_STRIPE) {
-                int slot = event.stripe;
-                xQueueSend(freeStripes, &slot, 0);
-            }
-        }
-        if (decodeTaskDone) finishPlayback(browserStatus);
-        return;
-    }
-    for (int processed = 0; processed < 6; ++processed) {
-        PlayerEvent event;
-        if (pendingEventValid) {
-            event = pendingEvent;
-            pendingEventValid = false;
-        } else if (xQueueReceive(readyEvents, &event, 0) != pdTRUE) {
-            return;
-        }
-        if (paused && event.kind != EVENT_ERROR && event.kind != EVENT_FINISHED) {
-            pendingEvent = event;
-            pendingEventValid = true;
-            return;
-        }
-        if (event.kind == EVENT_FRAME_START && page == PLAYING) {
-            const uint32_t elapsed = millis() - playbackStartedMs;
-            if (event.ptsMs > elapsed) {
-                pendingEvent = event;
-                pendingEventValid = true;
-                return;
-            }
-            frameInProgress = true;
-            frameChangedBytes = 0;
-        } else if (event.kind == EVENT_OPEN) {
-            page = PLAYING;
-            playbackStartedMs = millis();
-            expectedFrames = event.frame;
-            playbackDurationMs = event.ptsMs;
-            video.fillRect(0, 0, SCREEN_W, SCREEN_H, color(0, 0, 0));
-            Serial.printf("CQUALDIS PLAY frames=%lu heap=%u dma=%u\n",
-                          (unsigned long)event.frame,
-                          (unsigned)ESP.getFreeHeap(),
-                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA));
-        } else if (event.kind == EVENT_STRIPE) {
-            if (page == PLAYING) frameChangedBytes += commitStripe(event.stripe, event.y);
-            int slot = event.stripe;
-            xQueueSend(freeStripes, &slot, 0);
-        } else if (event.kind == EVENT_FRAME_END) {
-            frameInProgress = false;
-            ++totalFrames;
-            if ((totalFrames % 10U) == 0 || frameChangedBytes == 0)
-                Serial.printf("CQUALDIS FRAME %lu changed=%lu heap=%u\n",
-                              (unsigned long)event.frame,
-                              (unsigned long)frameChangedBytes,
-                              (unsigned)ESP.getFreeHeap());
-            if (pauseAfterFrame && totalFrames < expectedFrames) {
-                paused = true;
-                pausedAtMs = millis();
-                Serial.println("CQUALDIS PAUSED");
-            }
-            pauseAfterFrame = false;
-        } else if (event.kind == EVENT_ERROR) {
-            Serial.printf("CQUALDIS ERROR %s\n", event.message);
-            if (decodeTaskDone) finishPlayback(event.message);
-            else {
-                stopRequested = true;
-                page = STOPPING;
-                snprintf(browserStatus, sizeof(browserStatus), "%s", event.message);
-            }
-            return;
-        } else if (event.kind == EVENT_FINISHED) {
-            if (page == PLAYING && !paused &&
-                millis() - playbackStartedMs < playbackDurationMs) {
-                pendingEvent = event;
-                pendingEventValid = true;
-                return;
-            }
-            Serial.printf("CQUALDIS FINISHED frames=%lu\n",
-                          (unsigned long)totalFrames);
-            if (decodeTaskDone) finishPlayback("Playback complete");
-            else {
-                // The worker exits immediately after this event.
-                page = STOPPING;
-                snprintf(browserStatus, sizeof(browserStatus), "Playback complete");
-            }
-            return;
-        }
-    }
-}
-
-static void handleMouse(const String &line) {
-    int x = mouseX, y = mouseY * 284 / (SCREEN_H - 1);
-    int buttons = 0, dx = 0, dy = 0, wheel = 0;
-    if (sscanf(line.c_str(), "MOUSE %d %d %d %d %d %d",
-               &x, &y, &buttons, &dx, &dy, &wheel) < 3) return;
-    const bool pressed = (buttons & 1) && !mouseLeftDown;
-    mouseLeftDown = (buttons & 1) != 0;
-    if (page != BROWSER) return;
-    restoreCursor();
-    mouseSeen = true;
-    mouseX = constrain(x, 0, SCREEN_W - 1);
-    mouseY = constrain(y * (SCREEN_H - 1) / 284, 0, SCREEN_H - 1);
-    if (wheel != 0 && videoCount > 0) {
-        const int next = constrain(selected + (wheel > 0 ? -1 : 1), 0, videoCount - 1);
-        if (next != selected) {
-            selected = next;
-            drawBrowser();
-        } else drawCursor();
-        return;
-    }
-    if (pressed && videoCount > 0) {
-        int first = selected - 1;
-        if (first < 0) first = 0;
-        if (first > videoCount - 3) first = max(0, videoCount - 3);
-        for (int card = 0; card < 3; ++card) {
-            const int rowY = 27 + card * 47;
-            if (mouseY >= rowY && mouseY < rowY + 43 &&
-                first + card < videoCount) {
-                const int index = first + card;
-                if (selected == index) startPlayback();
-                else {
-                    selected = index;
-                    drawBrowser();
-                }
-                return;
-            }
-        }
-    }
-    drawCursor();
-}
-
-static void handleInput(String line, bool fromUSB = false) {
+static void handleInput(String line, bool fromUSB) {
     line.trim();
-    if (!line.length()) return;
-    if (fromUSB && line == "CQUALDIS PING") {
-        Serial.println("CQUALDIS PONG");
-        return;
-    }
-    if (fromUSB && line.startsWith("CQUALDIS PUT ")) {
-        receiveFileFromUSB(line);
-        return;
-    }
-    if (fromUSB && line.startsWith("CQUALDIS DELETE ")) {
-        deleteFileFromUSB(line);
-        return;
-    }
-    if (line.startsWith("MOUSE ")) { handleMouse(line); return; }
+    if (line == "Escape" || line == "esc") { returnToKernel(); return; }
     if (!videoReady) return;
-    if (page == BROWSER) {
-        if (line == "Escape" || line == "esc") { returnToKernel(); return; }
-        if (line == "R" || line == "r") {
-            if (!sdReady) sdReady = mountSD();
-            scanVideos();
-            drawBrowser();
-            return;
-        }
-        if (videoCount > 0 && (line == "UpArrow" || line == "up" ||
-                               line == "LeftArrow" || line == "left")) {
-            selected = (selected + videoCount - 1) % videoCount;
-            drawBrowser();
-        } else if (videoCount > 0 && (line == "DownArrow" || line == "down" ||
-                                      line == "RightArrow" || line == "right")) {
-            selected = (selected + 1) % videoCount;
-            drawBrowser();
-        } else if (videoCount > 0 && (line == "Enter" || line == "enter")) {
-            startPlayback();
-        }
-    } else if (line == "Escape" || line == "esc") {
-        stopPlayback();
-    } else if (page == PLAYING && (line == "Enter" || line == "enter" ||
-                                   line == " " || line == "Space")) {
-        if (paused) {
-            paused = false;
-            playbackStartedMs += millis() - pausedAtMs;
-            Serial.println("CQUALDIS RESUMED");
-        } else if (frameInProgress) {
-            pauseAfterFrame = true;
-        } else {
-            paused = true;
-            pausedAtMs = millis();
-            Serial.println("CQUALDIS PAUSED");
-        }
+    if (handleMouseReport(line)) return;
+    if (line == "MONO INFO") {
+        Serial.printf("MONO 1BIT %dx%d stride=%d frame=%d mode=%u name=%s free=%u DMA=%u isrMax=%lu budget=%lu over=%lu lines=%lu\n",
+            video.xres, video.yres, video.mono1Stride(),
+            video.mono1Stride() * video.yres, (unsigned)scene,
+            SCENE_NAMES[scene], (unsigned)ESP.getFreeHeap(),
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+            (unsigned long)video.mono1MaxRenderCycles(),
+            (unsigned long)video.mono1RenderBudgetCycles(),
+            (unsigned long)video.mono1OverBudgetCount(),
+            (unsigned long)video.mono1RenderedLines());
+        return;
     }
+    if (line == "MONO DUMP" && fromUSB) { dumpFrame(); return; }
+    if (line == "Tab" || line == "tab" || line == "TAB") {
+        scene = (Scene)(((unsigned)scene + 1U) % SCENE_COUNT);
+        modelInputDirty = false;
+        mouseOrbitLatched = false;
+        beginRender();
+        return;
+    }
+    const float pan = viewHeight * 0.18f;
+    if (scene == FRACTAL && (line == "LeftArrow" || line == "left"))
+        centerReal -= pan * (4.0f / 3.0f);
+    else if (scene == FRACTAL && (line == "RightArrow" || line == "right"))
+        centerReal += pan * (4.0f / 3.0f);
+    else if (scene == FRACTAL && (line == "UpArrow" || line == "up"))
+        centerImaginary -= pan;
+    else if (scene == FRACTAL && (line == "DownArrow" || line == "down"))
+        centerImaginary += pan;
+    else if (is3DScene() && (line == "LeftArrow" || line == "left"))
+        objectYaw -= 0.18f;
+    else if (is3DScene() && (line == "RightArrow" || line == "right"))
+        objectYaw += 0.18f;
+    else if (is3DScene() && (line == "UpArrow" || line == "up"))
+        objectPitch = max(-1.4f, objectPitch - 0.18f);
+    else if (is3DScene() && (line == "DownArrow" || line == "down"))
+        objectPitch = min(1.4f, objectPitch + 0.18f);
+    else if (scene == FRACTAL && (line == "+" || line == "=" || line == "PageUp"))
+        viewHeight *= 0.6f;
+    else if (scene == FRACTAL && (line == "-" || line == "PageDown"))
+        viewHeight *= 1.6f;
+    else if (is3DScene() && (line == "+" || line == "=" || line == "PageUp"))
+        objectZoom = min(1.55f, objectZoom * 1.12f);
+    else if (is3DScene() && (line == "-" || line == "PageDown"))
+        objectZoom = max(0.72f, objectZoom / 1.12f);
+    else if (line == "r" || line == "R") {
+        centerReal = -0.65f;
+        centerImaginary = 0.0f;
+        viewHeight = 2.35f;
+        objectYaw = 0.45f;
+        objectPitch = -0.25f;
+        objectZoom = 1.0f;
+    } else return;
+    modelInputDirty = false;
+    beginRender();
 }
 
 void setup() {
     Serial.begin(115200);
     Serial1.begin(256000, SERIAL_8N1, 16, 17);
+    prepareCRCTable();
     spiffsReady = SPIFFS.begin(false);
     if (readBootState() == "trueKernel") {
         writeBootState("false");
         flashKernel();
         return;
     }
-    sdReady = mountSD();
-    videoReady = video.init(CompMode::MODEPAL576Idiv3, VIDEO_PIN, true);
-    if (!videoReady || video.xres != SCREEN_W || video.yres != SCREEN_H) {
-        Serial.printf("CQUALDIS VIDEO INIT FAILED %dx%d\n", video.xres, video.yres);
+    Serial.printf("MONO before init: heap=%u DMA=%u\n",
+        (unsigned)ESP.getFreeHeap(),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA));
+    videoReady = video.init(CompMode::MODEPALMono1Ultra7x, VIDEO_PIN, true,
+        CompositeColorDAC::PixelStorage::Mono1);
+    if (!videoReady) {
+        Serial.println("MONO 1BIT video allocation failed");
         return;
     }
     controllerVideo.appVideoActive(8, 35);
-    freeStripes = xQueueCreate(2, sizeof(int));
-    readyEvents = xQueueCreate(8, sizeof(PlayerEvent));
-    scanVideos();
-    drawBrowser();
-    Serial.printf("CQUALDIS READY %dx%d heap=%u dma=%u largest=%u jpeg=%u videos=%d\n",
-                  video.xres, video.yres,
-                  (unsigned)ESP.getFreeHeap(),
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-                  (unsigned)sizeof(decoder), videoCount);
+    Serial.printf("MONO READY %dx%d stride=%d frame=%d heap=%u DMA=%u\n",
+        video.xres, video.yres, video.mono1Stride(),
+        video.mono1Stride() * video.yres, (unsigned)ESP.getFreeHeap(),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA));
+    beginRender();
 }
 
 void loop() {
     String line;
     while (controllerInput.poll(Serial1, line)) handleInput(line, false);
     while (usbInput.poll(Serial, line)) handleInput(line, true);
-    processPlayback();
-    delay(1);
+    if (modelInputDirty) {
+        modelInputDirty = false;
+        beginRender();
+    }
+    if (videoReady && nextRow < HEIGHT) {
+        if (scene == LETTERING) {
+            drawLettering();
+            nextRow = HEIGHT;
+        } else if (is3DScene()) {
+            auto row = [&](int y) { return video.mono1Row(y); };
+            modelStats = scene == KNOT ?
+                CQualDis3D::renderIncremental(row,
+                    WIDTH, TOP_BAR, FOOTER_TOP - 1,
+                    objectYaw, objectPitch, objectZoom) :
+                CQualDis3D::renderSecondIncremental(row,
+                    WIDTH, TOP_BAR, FOOTER_TOP - 1,
+                    objectYaw, objectPitch, objectZoom);
+            if (!modelStats.ok) {
+                video.mono1FillRect(0, TOP_BAR, WIDTH,
+                                    FOOTER_TOP - TOP_BAR, false);
+                auto plot = [&](int x, int y, bool white) {
+                    video.mono1Pixel(x, y, white);
+                };
+                if (scene == KNOT)
+                    CQualDis3D::render(plot, WIDTH, TOP_BAR, FOOTER_TOP - 1,
+                                       objectYaw, objectPitch, objectZoom);
+                else
+                    CQualDis3D::renderSecond(plot, WIDTH, TOP_BAR,
+                                             FOOTER_TOP - 1,
+                                             objectYaw, objectPitch, objectZoom);
+            }
+            nextRow = HEIGHT;
+        } else {
+            switch (scene) {
+            case FRACTAL: renderMandelbrotRow(nextRow); break;
+            case ETCHING: renderEtchingRow(nextRow); break;
+            default: break;
+            }
+            ++nextRow;
+        }
+        if (nextRow == HEIGHT) {
+            if (scene == ETCHING) drawObservatory();
+            if (!captionReusable) drawCaption();
+            if (is3DScene()) modelCanvasValid = true;
+            reportFrame();
+        }
+        yield();
+    } else {
+        delay(1);
+    }
 }

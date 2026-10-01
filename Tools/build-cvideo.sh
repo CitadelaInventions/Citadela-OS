@@ -3,8 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 video_lib="${BITLUNI_ESP32LIB:-$repo_root/vendor/bitluni_ESP32Lib_pal4x}"
-output_dir="${1:-${TMPDIR:-/tmp}/Citadela-CQualDis-build}"
-staged_lib="${TMPDIR:-/tmp}/Citadela-bitluni-mono1-clean"
+output_dir="${1:-/tmp/Citadela-CVideo-build}"
+build_dir="${output_dir}-intermediate"
+staged_lib="/tmp/Citadela-CVideo-bitluni-clean"
 
 if [[ ! -f "$video_lib/src/Composite/CompositeColorDAC.cpp" ]] ||
    ! grep -q 'usesPAL4xEncoder' "$video_lib/src/Composite/CompositeColorDAC.h"; then
@@ -26,10 +27,11 @@ if ! grep -q 'CITADELA_BITLUNI_MONO1' "$staged_lib/src/Composite/CompositeColorD
 fi
 
 arduino-cli compile --clean \
+    --build-path "$build_dir" \
     --fqbn 'esp32:esp32:esp32:UploadSpeed=460800,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default' \
     --library "$staged_lib" \
     --output-dir "$output_dir" \
-    "$repo_root/apps/AppCodes/CQualDis"
+    "$repo_root/apps/AppCodes/CVideo"
 
-cp "$output_dir/CQualDis.ino.bin" "$repo_root/apps/CQualDis.bin"
-echo "CQualDis image: $repo_root/apps/CQualDis.bin"
+cp "$output_dir/CVideo.ino.bin" "$repo_root/apps/CVideo.bin"
+echo "CVideo image: $repo_root/apps/CVideo.bin"

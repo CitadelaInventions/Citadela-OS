@@ -11,7 +11,7 @@
 // samples are complete JPEG images. The input File is owned by the caller. The
 // parser seeks into MP4 sample tables on demand rather than copying them to RAM.
 // H.264/AVC and ordinary MPEG-4 Part 2 video are deliberately rejected.
-namespace CQualDisMp4 {
+namespace CVideoMp4 {
 
 enum class Error : uint8_t {
     None,
@@ -588,4 +588,4 @@ private:
     }
 };
 
-} // namespace CQualDisMp4
+} // namespace CVideoMp4
